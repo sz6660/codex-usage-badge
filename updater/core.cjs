@@ -6,7 +6,7 @@ const zlib=require('node:zlib');
 const repository='sz6660/codex-usage-badge';
 const intervalMs=6*60*60*1000;
 const maxArchive=16*1024*1024,maxExpanded=48*1024*1024;
-const required=['agent.cjs','manage.cjs','macos/shortcuts.cjs','macos/startup/bridge','macos/startup/controller.cjs','macos/startup/watch.cjs','updater/core.cjs','updater/worker.cjs','updater/run.sh','update.json'];
+const required=['agent.cjs','manage.cjs','macos/shortcuts.cjs','macos/environment.cjs','macos/startup/bridge','macos/startup/controller.cjs','macos/startup/watch.cjs','updater/core.cjs','updater/worker.cjs','updater/run.sh','update.json'];
 function versionParts(value){
   if(typeof value!=='string'||!/^\d+\.\d+\.\d+$/.test(value))throw Error('无效版本号');
   const parts=value.split('.').map(Number);

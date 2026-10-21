@@ -19,6 +19,25 @@ function Isolate-Package([string]$Directory) {
         $encoding=New-Object Text.UTF8Encoding($file.Extension -eq '.ps1')
         [IO.File]::WriteAllText($file.FullName,$text,$encoding)
     }
+    Add-Content -LiteralPath (Join-Path $Directory 'environment.ps1') -Encoding UTF8 -Value 'function Get-TrialUserValue([string]$Name){$script:badgeTestEnvironment[$Name]}
+function Set-TrialUserValue([string]$Name,$Value){$script:badgeTestEnvironment[$Name]=$Value}
+function Notify-TrialEnvironment {}
+function Get-BadgeProfilePath {
+    $profile=Join-Path $env:LOCALAPPDATA ''fixture-profile''
+    [void][IO.Directory]::CreateDirectory($profile)
+    return $profile
+}
+'
+}
+# All environment changes are simulated in memory; no host registry changes.
+$script:badgeTestEnvironment=@{}
+function Get-TrialUserValue([string]$Name){$script:badgeTestEnvironment[$Name]}
+function Set-TrialUserValue([string]$Name,$Value){$script:badgeTestEnvironment[$Name]=$Value}
+function Notify-TrialEnvironment {}
+function Get-BadgeProfilePath {
+    $profile=Join-Path $env:LOCALAPPDATA 'fixture-profile'
+    [void][IO.Directory]::CreateDirectory($profile)
+    return $profile
 }
 try {
     [void][IO.Directory]::CreateDirectory($temp)
@@ -49,10 +68,10 @@ try {
     $state = Read-Json $script:StatePath
     $agentPid = $state.AgentPid
     $startupPid = $state.StartupPid
-    $nativePid = (Read-Json (Join-Path $script:InstallRoot 'startup/state.json')).nativePid
+    $nativePid = $null
     Assert ((Get-Process -Id $agentPid).ProcessName -eq 'node') 'Expected native Node agent'
     Assert ((Get-Process -Id $startupPid).ProcessName -eq 'node') 'Expected native startup observer'
-    Assert ((Get-Process -Id $nativePid).ProcessName -eq 'powershell') 'Expected persistent native adapter'
+    Assert ((Read-Json (Join-Path $script:InstallRoot 'startup/state.json')).automaticRestart -eq $false) 'Restart must be disabled'
     $duplicate = Start-Process -FilePath $script:PowerShell -ArgumentList (Get-ManagerArguments 'Run') -WindowStyle Hidden -PassThru
     Assert ($duplicate.WaitForExit(15000)) 'Duplicate worker was not rejected'
     $duplicate.Dispose()
@@ -73,14 +92,14 @@ try {
     } while (($newState.State -ne 'running' -or $newState.AgentPid -eq $agentPid) -and [DateTime]::UtcNow -lt $deadline)
     Assert ($newState.State -eq 'running' -and $newState.AgentPid -ne $agentPid -and $newState.Pid -eq $state.Pid) 'client update must refresh observers without replacing supervisor'
     Assert ((Read-Json $script:ConfigPath).AppExe -eq $updatedGui) 'updated app path not retained'
-    Assert (!(Get-Process -Id $nativePid -ErrorAction SilentlyContinue)) 'old native adapter must stop after path refresh'
+    Assert ((Read-Json (Join-Path $script:InstallRoot 'startup/state.json')).automaticRestart -eq $false) 'New observer must remain passive'
     $agentPid=$newState.AgentPid;$startupPid=$newState.StartupPid
-    $nativePid=(Read-Json (Join-Path $script:InstallRoot 'startup/state.json')).nativePid
+    $nativePid=$null
     Stop-Worker
     Assert (!(Test-Worker)) 'Native stop-file shutdown failed'
     Assert (!(Get-Process -Id $agentPid -ErrorAction SilentlyContinue)) 'Agent process still running after stop'
     Assert (!(Get-Process -Id $startupPid -ErrorAction SilentlyContinue)) 'Startup observer still running after stop'
-    Assert (!(Get-Process -Id $nativePid -ErrorAction SilentlyContinue)) 'Native adapter still running after stop'
+
     # Install a checksum-validated release over a running fixture, preserving settings.
     $releaseVersion=$version
     . (Join-Path $root 'windows/update-windows.ps1') -Functions

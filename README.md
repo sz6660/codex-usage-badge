@@ -1,5 +1,3 @@
-> 本 fork 修复版：Windows 0.10.3 / macOS 0.9.6。源码来自 [原项目](https://github.com/jaykinhoo9/codex-usage-badge)，修改说明见 [更新记录](CHANGELOG.md)。新安装包由本仓库 Actions 构建，未发布 Release 前请从 Actions 下载构建产物；下方原版下载链接保留作参考。自动更新只跟随 `sz6660/codex-usage-badge` 的已发布版本。
-
 # Codex Usage Badge · Codex 用量条
 
 为 Codex 桌面端增加额度显示、项目配色、文件夹容量和会话 Token 统计，适配浅色与深色主题。
@@ -12,21 +10,22 @@
 - **文件夹配色**：在项目菜单中选择颜色，方便区分不同项目。
 - **文件夹容量（macOS）**：在本地项目名称旁显示目录占用，支持 KB、MB、GB 等单位，自动缓存并刷新。
 - **会话 Token**：用蓝色色块表示用量，悬停查看累计 Token，按万、千万、亿显示。
-- **自动更新（macOS）**：每 6 小时检查 GitHub Releases，校验安装包后在后台升级，失败时恢复原版。
+- **原入口加载**：安装时自动配置环境变量，后台连接已启动的客户端，不再退出重开。
+- **手动升级**：后台不请求 GitHub，升级时运行新安装包中的安装命令。
 
-## 下载
+## 安装与下载
 
-[**macOS v0.9.4 预发布版**](https://github.com/jaykinhoo9/codex-usage-badge/releases/tag/v0.9.4-macos) · [Windows v0.10.1](https://github.com/jaykinhoo9/codex-usage-badge/releases/tag/v0.10.1-windows)
+本 fork 当前版本为 Windows / macOS **0.10.4**，来自 [原项目](https://github.com/jaykinhoo9/codex-usage-badge)。从 [本仓库 Actions](https://github.com/sz6660/codex-usage-badge/actions) 下载对应平台的构建产物，完整解压后操作。不自动发布 Release。
 
-| 系统 | 安装包 | 使用说明 |
-| --- | --- | --- |
-| macOS · Apple Silicon / Intel | [下载 ZIP](https://github.com/jaykinhoo9/codex-usage-badge/releases/download/v0.9.4-macos/CodexUsageBadge-macOS-0.9.4.zip) | [macOS 安装](docs/macos.md) |
-| Windows 10 / 11 | [下载 ZIP](https://github.com/jaykinhoo9/codex-usage-badge/releases/download/v0.10.1-windows/CodexUsageBadge-Windows-0.10.1.zip) | [Windows 安装](docs/windows.md) |
+| 系统 | 安装／升级 | 查看状态 | 卸载 | 说明 |
+| --- | --- | --- | --- | --- |
+| Windows 10 / 11 | `Install.cmd` | `Status.cmd` | `Uninstall.cmd` | [Windows 手册](docs/windows.md) |
+| macOS Apple Silicon / Intel | `安装.command` | `查看状态.command` | `卸载.command` | [macOS 手册](docs/macos.md) |
 
-macOS 和 Windows 安装后均可沿用原应用图标，启动时自动加载。Windows 后台在新窗口尚未开始操作时请求正常重开；点击、输入或后台启动时会跳过。需要已登录的 Codex 客户端和 Node.js 24+，安装器会优先查找客户端自带的运行环境。
+安装命令同时处理插件和环境变量；重复安装保留原环境备份，卸载自动恢复。安装后由用户完全退出 Codex，再从原来的图标打开。插件不启动或重开 Codex，不依赖点击是否发生在其他软件中，也没有加载冷却期。
 
-[更新记录](CHANGELOG.md) · [问题反馈](https://github.com/jaykinhoo9/codex-usage-badge/issues) · [开发说明](docs/development.md) · [隐私与安全](SECURITY.md)
+此方式依赖内部 `BUILD_FLAVOR=dev` 开关，还会影响客户端开发工具和内置更新判断。配置目录固定为已有目录以沿用登录状态。Windows 已在真实客户端验证；macOS 原入口在真实账号环境的加载仍需实际 Mac 验收，详见各平台手册。客户端应用包和原快捷方式不改动。
 
-Windows v0.10.1 起默认从 GitHub Release 自动更新，可通过 `Update.cmd` 立即检查。旧版本需先手动升级一次；之后发布更高版本的 Windows 安装包和校验清单即可自动分发。[更新设置与发布方式](docs/windows.md)
+[更新记录](CHANGELOG.md) · [问题反馈](https://github.com/sz6660/codex-usage-badge/issues) · [开发说明](docs/development.md) · [隐私与安全](SECURITY.md)
 
 非官方项目，与 OpenAI 无关联。采用 [MIT 许可](LICENSE)。

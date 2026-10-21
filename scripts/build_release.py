@@ -31,21 +31,21 @@ for target_platform in platforms:
     if target_platform == 'macOS':
         if f"const VERSION='{version}';" not in (root / 'manage.cjs').read_text():
             raise SystemExit('macOS installer version does not match package metadata')
-        mapping.update({'manage.cjs':'manage.cjs','scripts/mac-entry.sh':'scripts/mac-entry.sh','macos/shortcuts.cjs':'macos/shortcuts.cjs','macos/startup/bridge':'.devtools/macos-startup-bridge','macos/startup/controller.cjs':'macos/startup/controller.cjs','macos/startup/watch.cjs':'macos/startup/watch.cjs'})
+        mapping.update({'manage.cjs':'manage.cjs','scripts/mac-entry.sh':'scripts/mac-entry.sh','macos/shortcuts.cjs':'macos/shortcuts.cjs','macos/environment.cjs':'macos/environment.cjs','macos/startup/bridge':'.devtools/macos-startup-bridge','macos/startup/controller.cjs':'macos/startup/controller.cjs','macos/startup/watch.cjs':'macos/startup/watch.cjs'})
         for filename in ['core.cjs', 'worker.cjs', 'run.sh']:
             mapping['updater/'+filename] = 'updater/'+filename
         generated['update.json'] = (json.dumps({'schema':1,'repository':'sz6660/codex-usage-badge','platform':'macOS','version':version},sort_keys=True)+'\n').encode()
         modes['updater/run.sh'] = 0o755
         modes['scripts/mac-entry.sh'] = 0o755
         modes['macos/startup/bridge'] = 0o755
-        for filename, action in [('安装.command','install'),('诊断.command','status'),('卸载.command','uninstall'),('检查更新.command','update-check'),('关闭自动更新.command','update-disable'),('开启自动更新.command','update-enable')]:
+        for filename, action in [('安装.command','install'),('查看状态.command','status'),('卸载.command','uninstall')]:
             generated[filename] = f'#!/bin/bash\nexec /bin/bash "$(dirname "$0")/scripts/mac-entry.sh" {action}\n'.encode()
             modes[filename] = 0o755
     else:
-        mapping.update({'manage-windows.ps1':'windows/manage-windows.ps1','bridge.cjs':'windows/bridge.cjs','update.cjs':'windows/update.cjs','update-windows.ps1':'windows/update-windows.ps1','README-Windows.md':'docs/windows.md'})
+        mapping.update({'manage-windows.ps1':'windows/manage-windows.ps1','environment.ps1':'windows/environment.ps1','bridge.cjs':'windows/bridge.cjs','update.cjs':'windows/update.cjs','update-windows.ps1':'windows/update-windows.ps1','README-Windows.md':'docs/windows.md'})
         for filename in ['controller.cjs','windows.cjs','windows-bridge.ps1','windows-native.cs']:
             mapping['startup/'+filename] = 'startup/'+filename
-        for action in ['Install','Launch','Status','Uninstall','Update']:
+        for action in ['Install','Status','Uninstall']:
             text = f'@echo off\nsetlocal\n"%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0manage-windows.ps1" -Action {action}\nset "BADGE_EXIT=%ERRORLEVEL%"\nif not "%BADGE_EXIT%"=="0" echo Operation failed. See the message above.\npause\nexit /b %BADGE_EXIT%\n'
             generated[action+'.cmd'] = text.replace('\n','\r\n').encode('ascii')
     payload = {file:(root / source).read_bytes() for file,source in mapping.items()}

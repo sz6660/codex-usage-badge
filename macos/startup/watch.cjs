@@ -40,42 +40,18 @@ class NativeBridge {
   }
   close(){this.fail(Error('Startup watcher stopped'));this.lines.close();this.child.stdin.end();this.child.kill('SIGTERM');}
 }
-async function main() {
-  const root=__dirname,config=JSON.parse(fs.readFileSync(path.join(root,'settings.json'),'utf8'));
-  const receipt=path.join(root,'state.json');
-  let state={};try{state=JSON.parse(fs.readFileSync(receipt,'utf8'));}catch(error){if(error.code!=='ENOENT')throw error;}
-  if(!Number.isFinite(state.lastAttemptAt??0))throw Error('Invalid startup receipt');
-  const bridge=new NativeBridge(path.join(root,'bridge'),config.app);
-  let stopped=false,timer;
-  const adapter={
-    snapshot:()=>bridge.call('snapshot'),
-    quit:(app,stamp)=>bridge.call('quit',app.pid,app.key,stamp),
-    launch:(stamp,frontmost)=>bridge.call('launch',stamp,frontmost,'restore'),
-    show:(app,stamp,frontmost)=>bridge.call('show',app.pid,app.key,stamp,frontmost),
-    portInUse:()=>new Promise(resolve=>{
-      const socket=net.createConnection({host:'127.0.0.1',port:39222});
-      const done=value=>{socket.destroy();resolve(value);};
-      socket.once('connect',()=>done(true));socket.once('error',error=>done(error.code!=='ECONNREFUSED'));
-      socket.setTimeout(350,()=>done(true));
-    }),
-    async record(event,details={}) {
-      const {message,reason,shown,activated,ageMs,clientInputIdleMs,frontmostPid,...previous}=state;
-      state={...previous,...details,event,updatedAt:Date.now()};
-      const temp=receipt+'.tmp';fs.writeFileSync(temp,JSON.stringify(state,null,2)+'\n',{mode:0o600});fs.renameSync(temp,receipt);
-      console.log(new Date().toISOString(),event);
-    }
-  };
-  const controller=new StartupController(adapter,{lastAttemptAt:state.lastAttemptAt||0});
-  function shutdown(code=0){if(stopped)return;stopped=true;controller.stop();clearTimeout(timer);bridge.close();process.exitCode=code;}
-  async function tick(){
-    if(stopped)return;
-    if(!fs.existsSync(path.join(root,'../agent.cjs')))return shutdown();
-    await controller.tick();
-    if(bridge.closed)return shutdown(1);
-    if(!stopped)timer=setTimeout(tick,controller.pendingLaunch?200:1000);
-  }
-  process.once('SIGTERM',()=>shutdown());process.once('SIGINT',()=>shutdown());
-  await tick();
+async function main(){
+  const envModule=path.join(path.dirname(__dirname),'macos/environment.cjs');
+  require(fs.existsSync(envModule)?envModule:'../environment.cjs').applySession();
+  const root=path.dirname(__dirname);
+  const stopFile=process.env.CODEX_BADGE_STOP_FILE||path.join(root,'stop.request');
+  const receipt=path.join(__dirname,'state.json');
+  const state={event:'watching',mode:'environment-connection-only',automaticRestart:false,pid:process.pid,updatedAt:Date.now()};
+  fs.writeFileSync(receipt,JSON.stringify(state,null,2)+'\n');
+  console.log(new Date().toISOString(),'environment-connection-only: no client launch or restart');
+  const timer=setInterval(()=>{if(fs.existsSync(stopFile)){clearInterval(timer);process.exit(0);}},200);
+  const stop=()=>{clearInterval(timer);process.exit(0);};
+  process.once('SIGTERM',stop);process.once('SIGINT',stop);
 }
 module.exports={NativeBridge};
 if(require.main===module)main().catch(error=>{console.error(error.message);process.exitCode=1;});

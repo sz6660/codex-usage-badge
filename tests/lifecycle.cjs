@@ -6,10 +6,14 @@ const installDir=path.join(temp,'Library/Application Support/CodexUsageBadge');
 const shortcut=path.join(temp,'Desktop/Codex 用量条.app'),launcher=path.join(temp,'Applications/Codex 用量条.app');
 const jobs=new Set(),messages=[],calls=[];
 let failJob='',failCopy=false;
+const launchEnvironment=new Map();
 const testFs={...fs,copyFileSync(source,dest,...args){if(failCopy&&dest===path.join(installDir,'startup-helper/bridge')){failCopy=false;throw Error('simulated helper write failure');}return fs.copyFileSync(source,dest,...args);}};
 const execFileSync=(bin,args,options)=>{
   calls.push([bin,...args]);
   if(bin==='/bin/launchctl'){
+    if(args[0]==='getenv')return launchEnvironment.get(args[1])||'';
+    if(args[0]==='setenv'){launchEnvironment.set(args[1],args[2]);return '';}
+    if(args[0]==='unsetenv'){launchEnvironment.delete(args[1]);return '';}
     const job=args[0]==='bootstrap'?path.basename(args[2],'.plist'):args[1].split('/').at(-1);
     if(args[0]==='print'){if(jobs.has(job))return 'state = running';throw Error('not loaded');}
     if(args[0]==='bootout'){jobs.delete(job);return '';}
@@ -33,38 +37,34 @@ const execFileSync=(bin,args,options)=>{
 class FailedSocket{constructor(){this.events={};setImmediate(()=>this.events.error?.());}addEventListener(n,h){this.events[n]=h;}close(){}}
 const sandbox={module:{exports:{}},__dirname:root,process,Buffer,URL,setTimeout,clearTimeout,AbortSignal,WebSocket:FailedSocket,
   console:{log:s=>messages.push(s),warn:s=>messages.push(s)},fetch:async()=>({ok:true,json:async()=>[{type:'page',url:'app://-/index.html',webSocketDebuggerUrl:'ws://127.0.0.1/unreachable'}]}),
-  require:id=>id==='node:fs'?testFs:id==='node:os'?{...os,homedir:()=>temp}:id==='node:child_process'?{...cp,execFileSync}:id==='./agent.cjs'?require('../agent.cjs'):id==='./macos/shortcuts.cjs'?require('../macos/shortcuts.cjs'):id==='./updater/core.cjs'?require('../updater/core.cjs'):require(id)};
+  require:id=>id==='node:fs'?testFs:id==='node:os'?{...os,homedir:()=>temp}:id==='node:child_process'?{...cp,execFileSync}:id==='./macos/environment.cjs'?require('../macos/environment.cjs'):id==='./agent.cjs'?require('../agent.cjs'):id==='./macos/shortcuts.cjs'?require('../macos/shortcuts.cjs'):id==='./updater/core.cjs'?require('../updater/core.cjs'):require(id)};
 vm.runInNewContext(fs.readFileSync(path.join(root,'manage.cjs'),'utf8'),sandbox,{filename:'manage.cjs'});
 const manager=sandbox.module.exports;
 (async()=>{try{
   fs.mkdirSync(path.join(temp,'Desktop'),{recursive:true});
+  fs.mkdirSync(path.join(temp,'Library/Application Support/Codex'),{recursive:true});
   failCopy=true;await assert.rejects(manager.install(),/已恢复安装前的程序文件/);
   assert.equal(jobs.size,0);assert.equal(fs.existsSync(installDir),false);
-  failJob='com.codexusagebadge.updater';await assert.rejects(manager.install(),/已恢复安装前的程序文件/);
-  assert.equal(jobs.size,0);assert.equal(fs.existsSync(installDir),false);
   await manager.install();await manager.install();
-  assert.equal(jobs.size,3);assert.equal(fs.existsSync(launcher),false);assert.equal(fs.existsSync(shortcut),false);
+  assert.equal(jobs.size,2);assert.equal(fs.existsSync(launcher),false);assert.equal(fs.existsSync(shortcut),false);
   const settings=path.join(installDir,'update-settings.json');fs.writeFileSync(settings,JSON.stringify({owner:'codex-usage-badge-updater-v1',enabled:false}));
   await manager.install();assert.equal(JSON.parse(fs.readFileSync(settings,'utf8')).enabled,false,'upgrade must retain opt-out');
   assert.equal(JSON.parse(fs.readFileSync(path.join(installDir,'installed-version.json'),'utf8')).version,require('../package.json').version);
   assert.equal(manager.updaterConfig().StartInterval,21600);
-  // An updater's child installer must leave its launchd parent alive until it returns.
-  const installedVersion=path.join(installDir,'installed-version.json');
-  const oldVersion=JSON.parse(fs.readFileSync(installedVersion,'utf8'));fs.writeFileSync(installedVersion,JSON.stringify({...oldVersion,version:'0.9.3'}));
+  // Upgrade retires an existing enabled periodic job, including its persisted plist.
+  const updaterPlist=path.join(temp,'Library/LaunchAgents/com.codexusagebadge.updater.plist');
+  fs.writeFileSync(updaterPlist,'legacy job');jobs.add('com.codexusagebadge.updater');
   fs.writeFileSync(settings,JSON.stringify({owner:'codex-usage-badge-updater-v1',enabled:true}));
-  const callStart=calls.length;process.argv.push('--from-update');
-  try{
-    await manager.install();assert.equal(jobs.size,3);
-    assert.ok(!calls.slice(callStart).some(c=>c[0]==='/bin/launchctl'&&c[1]==='bootout'&&c[2].endsWith('/com.codexusagebadge.updater')),'self-update must not kill the waiting updater');
-    assert.ok(!calls.slice(callStart).some(c=>c[0]==='/bin/launchctl'&&c[1]==='bootstrap'&&c[3].endsWith('com.codexusagebadge.updater.plist')),'self-update reuses the loaded periodic task');
-    const afterUpdate=calls.length;await manager.install();assert.equal(calls.length,afterUpdate,'same-version automatic replay must do no installation work');
-  }finally{process.argv.pop();}
+  await manager.install();assert.equal(jobs.size,2);
+  assert.equal(fs.existsSync(updaterPlist),false);
+  assert.equal(JSON.parse(fs.readFileSync(settings,'utf8')).enabled,false);
+  assert.ok(!calls.some(c=>c[0]==='/bin/launchctl'&&c[1]==='bootstrap'&&c[2].endsWith('com.codexusagebadge.updater.plist')));
   const agent=path.join(installDir,'agent.cjs'),before=fs.readFileSync(agent,'utf8')+'\n// old installed agent\n';
   fs.writeFileSync(agent,before);
   const receipt=path.join(installDir,'startup-helper/state.json');fs.writeFileSync(receipt,JSON.stringify({lastAttemptAt:123,event:'reopened'}));
   for(const job of ['com.codexusagebadge.agent','com.codexusagebadge.startup']){
     failJob=job;await assert.rejects(manager.install(),/已恢复安装前的程序文件/);
-    assert.equal(jobs.size,3);assert.equal(fs.readFileSync(agent,'utf8'),before);
+    assert.equal(jobs.size,2);assert.equal(fs.readFileSync(agent,'utf8'),before);
     assert.equal(JSON.parse(fs.readFileSync(receipt,'utf8')).lastAttemptAt,123);
   }
   fs.mkdirSync(path.join(launcher,'Contents'),{recursive:true});

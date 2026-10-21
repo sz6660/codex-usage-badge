@@ -1,11 +1,12 @@
 param(
-    [ValidateSet('Install','Launch','Run','Uninstall','Status','Update','CheckUpdate','UpdatesOn','UpdatesOff','Functions')][string]$Action = 'Status',
+    [ValidateSet('Install','Run','Uninstall','Status','Functions')][string]$Action = 'Status',
     [string]$AppExe, [string]$NodeExe, [string]$CodexBin, [string]$CodexHome,
     [switch]$DisableAutoUpdate, [switch]$AutomaticUpdate, [switch]$ForceUpdate
 )
 $ErrorActionPreference = 'Stop'
-$script:Version = '0.10.3'
+$script:Version = '0.10.4'
 $script:Owner = 'local.codexusagebadge.windows'
+. (Join-Path $PSScriptRoot 'environment.ps1')
 
 function ConvertTo-NativeArgument([AllowEmptyString()][string]$Value) {
     # Microsoft C runtime argument quoting, including quotes and trailing backslashes.
@@ -320,7 +321,6 @@ function Run-Worker {
     $child = $null
     $startup = $null
     $generationStop = $null
-    $nextUpdateCheck = [DateTime]::UtcNow.AddSeconds(30)
     try {
         try { $owned = $mutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $owned = $true }
         if (!$owned) { return }
@@ -355,12 +355,6 @@ function Run-Worker {
                 Write-Json $script:StatePath @{ State = 'running'; Pid = $PID; AgentPid = $child.Id; StartupPid = $startup.Id; Version = $script:Version; StartedAt = [DateTime]::UtcNow.ToString('o') }
                 $nextPathCheck = [DateTime]::UtcNow.AddSeconds(5)
                 while (!$child.HasExited -and !$startup.HasExited) {
-                    if ([DateTime]::UtcNow -ge $nextUpdateCheck -and !(Test-Path -LiteralPath $script:StopPath)) {
-                        $nextUpdateCheck = [DateTime]::UtcNow.AddMinutes(5)
-                        if (Get-AutoUpdateEnabled) {
-                            Start-Process -FilePath $script:PowerShell -ArgumentList (Get-ManagerArguments 'CheckUpdate') -WindowStyle Hidden | Out-Null
-                        }
-                    }
                     if ([DateTime]::UtcNow -ge $nextPathCheck) {
                         $refresh = !(Test-ConfigurationCurrent $config)
                         $nextPathCheck = [DateTime]::UtcNow.AddSeconds(5)
@@ -429,10 +423,11 @@ function Install-Badge($Overrides) {
     $wasRunning = Test-Worker
     $swapped = $false
     $oldMoved = $false
+    $environmentCreated = $false
     try {
         [void][IO.Directory]::CreateDirectory($stage)
         Write-Utf8 (Join-Path $stage '.codex-usage-badge-owner') $script:Owner
-        foreach ($name in @('manage-windows.ps1','agent.cjs','bridge.cjs','update.cjs','update-windows.ps1','Install.cmd','Launch.cmd','Status.cmd','Uninstall.cmd','Update.cmd','README-Windows.md')) {
+        foreach ($name in @('manage-windows.ps1','agent.cjs','bridge.cjs','update.cjs','update-windows.ps1','environment.ps1','Install.cmd','Status.cmd','Uninstall.cmd','README-Windows.md')) {
             Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination (Join-Path $stage $name)
         }
         [void][IO.Directory]::CreateDirectory((Join-Path $stage 'startup'))
@@ -445,13 +440,14 @@ function Install-Badge($Overrides) {
             $oldFile = Join-Path $script:InstallRoot $name
             if (Test-Path -LiteralPath $oldFile) { Copy-Item -LiteralPath $oldFile -Destination (Join-Path $stage $name) }
         }
-        if ($DisableAutoUpdate) { Write-Json (Join-Path $stage 'update-preferences.json') @{ Enabled = $false } }
+        Write-Json (Join-Path $stage 'update-preferences.json') @{ Enabled = $false }
         $oldReceipt = Join-Path $script:InstallRoot 'startup/state.json'
         if (Test-Path -LiteralPath $oldReceipt) { Copy-Item -LiteralPath $oldReceipt -Destination (Join-Path $stage 'startup/state.json') }
         if (Test-Path -LiteralPath $script:InstallRoot) { Move-Item -LiteralPath $script:InstallRoot -Destination $backup; $oldMoved = $true }
         Move-Item -LiteralPath $stage -Destination $script:InstallRoot; $swapped = $true
         if (Test-OwnedShortcut $script:DesktopLink 'Launch') { Remove-Item -LiteralPath $script:DesktopLink -Force }
         Write-Shortcut $script:StartupLink 'Run' $config.AppExe
+        $environmentCreated = Prepare-BadgeEnvironment
         Start-Worker
     } catch {
         $failure = $_
@@ -460,6 +456,7 @@ function Install-Badge($Overrides) {
             $failed = $script:InstallRoot + '.failed-' + [guid]::NewGuid().ToString('N')
             Move-Item -LiteralPath $script:InstallRoot -Destination $failed
         }
+        if ($environmentCreated) { Restore-BadgeEnvironment }
         if ($oldMoved) { Move-Item -LiteralPath $backup -Destination $script:InstallRoot }
         Restore-ShortcutState $links
         if ($wasRunning) { Start-Worker }
@@ -468,7 +465,7 @@ function Install-Badge($Overrides) {
         if (Test-Path -LiteralPath $stage) { Assert-OwnedDirectory $stage; Remove-Item -LiteralPath $stage -Recurse -Force }
     }
     Write-Host '安装成功。下次完全退出后，直接使用原来的 Codex 图标打开即可自动加载。'
-    Write-Host '已打开的窗口不会被接管。若自动加载被安全保护跳过，可完全退出后运行 Launch.cmd。'
+    Write-Host '环境变量已自动配置。请自行完全退出 Codex，再从原图标打开；插件不会自动关闭或重开客户端。'
     if ($oldMoved) { Write-Host "旧版本备份：$backup" }
 }
 function Get-DebugPages {
@@ -477,31 +474,13 @@ function Get-DebugPages {
             Where-Object { $_.url -match '^app://-/index\.html(?:[?#]|$)' -and $_.url -notmatch '(?i)overlay' }
     } catch {}
 }
-function Launch-Badge {
-    Assert-OwnedDirectory $script:InstallRoot
-    if (!(Test-Path -LiteralPath $script:ConfigPath)) { throw '尚未安装，请先运行 Install.cmd。' }
-    $config = Resolve-Configuration (Read-Json $script:ConfigPath) $null
-    Stop-Worker
-    Write-Json $script:ConfigPath $config
-    Start-Worker
-    if (@(Get-DebugPages).Count -gt 0) { return }
-    $running = @(Get-Process -Name 'Codex','ChatGPT' -ErrorAction SilentlyContinue | Where-Object {
-        try { Test-DesktopExecutable $_.Path } catch { $false }
-    })
-    if ($running.Count -gt 0) { throw '客户端已运行，但没有开启用量条连接。请从托盘菜单或客户端菜单完全退出，再运行 Launch.cmd。不会强制结束你的会话。' }
-    # Only this explicit user action starts the GUI. The Run action cannot call this function.
-    Start-Process -FilePath $config.AppExe -ArgumentList '--remote-debugging-address=127.0.0.1 --remote-debugging-port=39222' | Out-Null
-    for ($i = 0; $i -lt 30; $i++) {
-        if (@(Get-DebugPages).Count -gt 0) { return }
-        Start-Sleep -Seconds 1
-    }
-    throw '客户端已启动，但调试连接尚未就绪。请运行 Status.cmd；首次登录完成后可再次运行 Launch.cmd。'
-}
 function Uninstall-Badge {
     Assert-OwnedDirectory $script:InstallRoot
-    if (!(Test-Path -LiteralPath $script:InstallRoot)) { Write-Host '未安装 Windows 用量条。'; return }
+    Assert-BadgeEnvironmentRestore
+    if (!(Test-Path -LiteralPath $script:InstallRoot)) { Restore-BadgeEnvironment; Write-Host '未安装 Windows 用量条。'; return }
     Assert-ShortcutAvailable $script:StartupLink 'Run'
     Stop-Worker
+    Restore-BadgeEnvironment
     $config = Read-Json $script:ConfigPath
     $cleaned = $false
     try {
@@ -521,8 +500,10 @@ function Uninstall-Badge {
 function Show-Status {
     Write-Host "Codex 用量条 Windows $script:Version"
     Write-Host "安装目录：$script:InstallRoot"
+    Write-Host ("已安装：" + (Test-Path -LiteralPath $script:ConfigPath))
+    Show-BadgeEnvironment
     Write-Host "后台运行：$(Test-Worker)"
-    Write-Host "自动更新：$(Get-AutoUpdateEnabled)（GitHub Windows Release，每 6 小时检查）"
+    Write-Host '自动检查更新：关闭；更新时重新运行新版 Install.cmd。'
     $update = Read-Json (Join-Path $script:InstallRoot 'update-state.json')
     if ($update) { Write-Host ('更新状态：' + ($update | ConvertTo-Json -Compress)) }
     $state = Read-Json $script:StatePath
@@ -533,7 +514,7 @@ function Show-Status {
     if ($config) {
         foreach ($key in @('AppExe','NodeExe','CodexBin','CodexHome')) { Write-Host ($key + '：' + $config.$key) }
         try { Write-Host (Invoke-Hidden $config.NodeExe @((Join-Path $script:InstallRoot 'bridge.cjs'),'status')) }
-        catch { Write-Host '尚未连接客户端窗口。请完全退出后从原图标启动；必要时使用 Launch.cmd。' }
+        catch { Write-Host '尚未连接客户端窗口。请自行完全退出 Codex，再从原图标启动；必要时注销 Windows 以刷新启动器环境。' }
     }
 }
 
@@ -583,14 +564,10 @@ try {
     }
     switch ($Action) {
         'Install' { Install-Badge ([pscustomobject]@{ AppExe=$AppExe; NodeExe=$NodeExe; CodexBin=$CodexBin; CodexHome=$CodexHome }) }
-        'Launch' { Launch-Badge }
         'Run' { Run-Worker }
         'Uninstall' { Uninstall-Badge }
         'Status' { Show-Status }
-        'Update' { Invoke-BadgeUpdate $true }
-        'CheckUpdate' { Invoke-BadgeUpdate $false }
-        'UpdatesOn' { Assert-OwnedDirectory $script:InstallRoot; Write-Json (Join-Path $script:InstallRoot 'update-preferences.json') @{ Enabled=$true }; Write-Host '自动更新已开启。' }
-        'UpdatesOff' { Assert-OwnedDirectory $script:InstallRoot; Write-Json (Join-Path $script:InstallRoot 'update-preferences.json') @{ Enabled=$false }; Write-Host '自动更新已关闭。' }
+
     }
 } catch {
     if ($Action -eq 'Launch') {

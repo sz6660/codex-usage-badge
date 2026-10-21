@@ -59,41 +59,16 @@ function writeReceipt(file,state) {
   try{fs.writeFileSync(fd,JSON.stringify(state,null,2)+'\n');fs.fsyncSync(fd);}finally{fs.closeSync(fd);}
   fs.renameSync(temp,file);
 }
-async function main() {
-  const root=path.dirname(__dirname),receipt=path.join(__dirname,'state.json');
-  const config=JSON.parse(fs.readFileSync(path.join(root,'config.json'),'utf8'));
+async function main(){
+  const root=path.dirname(__dirname);
   const stopFile=process.env.CODEX_BADGE_STOP_FILE||path.join(root,'stop.request');
-  let state=readReceipt(receipt),stopped=false,timer;
-  const bridge=new NativeBridge(config.AppExe,stopFile);
-  const adapter={
-    snapshot:()=>bridge.call('snapshot'),portInUse,
-    quit:(app,stamp)=>bridge.call('quit',{pid:app.pid,key:app.key,stamp}),
-    launch:async(stamp,foreground)=>await portInUse()?{launched:false}:bridge.call('launch',{stamp,foreground,restore:true}),
-    show:(app,stamp,foreground)=>bridge.call('show',{pid:app.pid,key:app.key,stamp,foreground}),
-    async record(event,details={}) {
-      const {message,reason,errorCode,processCount,rebootReason,shown,activated,ageMs,inputIdleMs,frontmostPid,...previous}=state;
-      state={...previous,...details,event,nativePid:bridge.child.pid,updatedAt:Date.now()};
-      writeReceipt(receipt,state);
-      console.log(new Date().toISOString(),event);
-    }
-  };
-  const controller=new StartupController(adapter,{lastAttemptAt:state.lastAttemptAt||0});
-  function shutdown(code=0){
-    if(stopped)return;stopped=true;controller.stop();clearTimeout(timer);clearInterval(stopTimer);bridge.close();
-    // Only terminate our own helper if its bounded native cancellation does not finish.
-    const deadline=setTimeout(()=>{bridge.child.kill();process.exit(code);},12000);deadline.unref();
-    bridge.child.once('exit',()=>process.exit(code));
-    process.exitCode=code;
-  }
-  const stopTimer=setInterval(()=>{if(fs.existsSync(stopFile))shutdown();},200);
-  async function tick(){
-    if(stopped)return;
-    await controller.tick();
-    if(bridge.closed)return shutdown(1);
-    if(!stopped)timer=setTimeout(tick,controller.pendingLaunch?200:1000);
-  }
-  process.once('SIGTERM',()=>shutdown());process.once('SIGINT',()=>shutdown());
-  await tick();
+  const receipt=path.join(__dirname,'state.json');
+  const state={event:'watching',mode:'environment-connection-only',automaticRestart:false,pid:process.pid,updatedAt:Date.now()};
+  fs.writeFileSync(receipt,JSON.stringify(state,null,2)+'\n');
+  console.log(new Date().toISOString(),'environment-connection-only: no client launch or restart');
+  const timer=setInterval(()=>{if(fs.existsSync(stopFile)){clearInterval(timer);process.exit(0);}},200);
+  const stop=()=>{clearInterval(timer);process.exit(0);};
+  process.once('SIGTERM',stop);process.once('SIGINT',stop);
 }
 module.exports={NativeBridge,portInUse,readReceipt,writeReceipt};
 if(require.main===module)main().catch(error=>{console.error(error.message);process.exitCode=1;});

@@ -91,6 +91,9 @@ function installDownloaded(root,candidate,force) {
   });
 }
 async function main() {
+  // Ignore invocations from older background supervisors. Manual Update.cmd
+  // passes --force and retains the existing integrity checks.
+  if(!process.argv.includes('--force'))return;
   const root=__dirname,file=path.join(root,'update-state.json'),configFile=path.join(root,'config.json');
   if(fs.readFileSync(path.join(root,'.codex-usage-badge-owner'),'utf8').trim()!=='local.codexusagebadge.windows')throw Error('Update install ownership check failed');
   const config=JSON.parse(fs.readFileSync(configFile,'utf8'));

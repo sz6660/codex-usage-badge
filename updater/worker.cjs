@@ -8,7 +8,11 @@ const cacheDir=path.join(os.homedir(),'Library/Caches/CodexUsageBadge-updates');
 async function main(args=process.argv.slice(2)){
   if(process.platform!=='darwin')throw Error('此更新器仅供 macOS 使用');
   const mode=args[0]||'run';
+  // Older launchd jobs may still invoke this worker during migration.
+  // Return before timers, filesystem writes or network access.
+  if(mode==='run'){console.log('后台自动检查更新已移除');return;}
   if(['enable','disable'].includes(mode)){
+    if(mode==='enable'){console.log('后台自动检查更新已移除，请手动检查更新');return;}
     const file=path.join(installDir,'update-settings.json'),settings=readJson(file);
     if(settings?.owner!=='codex-usage-badge-updater-v1')throw Error('自动更新未配置');
     writeJson(file,{...settings,enabled:mode==='enable'});console.log(mode==='enable'?'自动更新已开启':'自动更新已关闭');return;

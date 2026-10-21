@@ -32,7 +32,9 @@ jobs:
         run: node tests/startup-native.cjs .devtools/macos-startup-bridge
       - name: PowerShell portability and rollback tests
         shell: pwsh
-        run: ./tests/windows.ps1
+        run: |
+          ./tests/environment.ps1
+          ./tests/windows.ps1
       - name: Native Windows install and shutdown
         if: runner.os == 'Windows'
         shell: powershell

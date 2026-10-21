@@ -6,7 +6,7 @@ const { execFileSync, spawn } = require('node:child_process');
 const { resolveCodexBin, isMainWindow } = require('./agent.cjs');
 const {cleanupLegacyLauncher}=require('./macos/shortcuts.cjs');
 const {acquireLock,readJson,compareVersions}=require('./updater/core.cjs');
-const VERSION='0.9.6';
+const VERSION='0.10.4';
 const home = os.homedir();
 const app = process.env.CODEX_BADGE_APP || ['/Applications/Codex.app','/Applications/ChatGPT.app',path.join(home,'Applications/Codex.app'),path.join(home,'Applications/ChatGPT.app')].find(candidate => { try { resolveCodexBin(undefined,candidate); return true; } catch { return false; } }) || '/Applications/Codex.app';
 const node = process.execPath;
@@ -23,7 +23,8 @@ const updaterPlist=path.join(home,'Library/LaunchAgents',updaterLabel+'.plist');
 const startupDir=path.join(installDir,'startup-helper');
 const packagedBridge=path.join(__dirname,'macos/startup/bridge');
 const bridgeSource=fs.existsSync(packagedBridge)?packagedBridge:path.join(__dirname,'.devtools/macos-startup-bridge');
-const runtimeFiles={'agent.cjs':path.join(__dirname,'agent.cjs'),'manage.cjs':path.join(__dirname,'manage.cjs'),'macos/shortcuts.cjs':path.join(__dirname,'macos/shortcuts.cjs'),'startup-helper/bridge':bridgeSource,'startup-helper/controller.cjs':path.join(__dirname,'macos/startup/controller.cjs'),'startup-helper/watch.cjs':path.join(__dirname,'macos/startup/watch.cjs'),'updater/core.cjs':path.join(__dirname,'updater/core.cjs'),'updater/worker.cjs':path.join(__dirname,'updater/worker.cjs'),'updater/run.sh':path.join(__dirname,'updater/run.sh')};
+const runtimeFiles={'macos/environment.cjs':path.join(__dirname,'macos/environment.cjs'),'agent.cjs':path.join(__dirname,'agent.cjs'),'manage.cjs':path.join(__dirname,'manage.cjs'),'macos/shortcuts.cjs':path.join(__dirname,'macos/shortcuts.cjs'),'startup-helper/bridge':bridgeSource,'startup-helper/controller.cjs':path.join(__dirname,'macos/startup/controller.cjs'),'startup-helper/watch.cjs':path.join(__dirname,'macos/startup/watch.cjs'),'updater/core.cjs':path.join(__dirname,'updater/core.cjs'),'updater/worker.cjs':path.join(__dirname,'updater/worker.cjs'),'updater/run.sh':path.join(__dirname,'updater/run.sh')};
+const environment = require('./macos/environment.cjs').createEnvironment({home,command});
 const launcher = path.join(home, 'Applications/Codex 用量条.app');
 const desktopLauncher = path.join(home, 'Desktop/Codex 用量条.app');
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -135,8 +136,8 @@ async function installUnlocked() {
   preflight();
   const fromUpdate=process.argv.includes('--from-update');
   const previousJobs=[[label,plistPath],[startupLabel,startupPlist],...(!fromUpdate?[[updaterLabel,updaterPlist]]:[])].filter(([job])=>loaded(job));
-  const existingUpdater=fromUpdate&&!!loaded(updaterLabel);let startedUpdater=false;
   let restore=()=>{};
+  let environmentTransaction;
   try {
     if(!fromUpdate)await stop(updaterLabel);
     for(const old of [startupLabel,'com.codexusagebadge.install-once',activationLabel,label])await stop(old);
@@ -148,7 +149,10 @@ async function installUnlocked() {
       fs.chmodSync(target,name.endsWith('/bridge')?0o700:0o600);
     }
     fs.writeFileSync(path.join(startupDir,'settings.json'),JSON.stringify({owner:'codex-usage-badge-startup-v1',app:fs.realpathSync(app)})+'\n',{mode:0o600});
-    writePlist(plistPath,agentConfig());writePlist(startupPlist,startupConfig());writePlist(updaterPlist,updaterConfig());
+    writePlist(plistPath,agentConfig());writePlist(startupPlist,startupConfig());
+    // Retire the old periodic job when installing this version.
+    if(!fromUpdate)fs.rmSync(updaterPlist,{force:true});
+    environmentTransaction=environment.prepare();
     command('/bin/launchctl',['bootstrap',gui,plistPath]);
     const startedAt=Date.now();
     command('/bin/launchctl',['bootstrap',gui,startupPlist]);
@@ -163,23 +167,22 @@ async function installUnlocked() {
     }
     if(!ready)throw new Error('启动助手未能就绪');
     const settingsFile=path.join(installDir,'update-settings.json');
-    if(!fs.existsSync(settingsFile))fs.writeFileSync(settingsFile,JSON.stringify({owner:'codex-usage-badge-updater-v1',enabled:true,allowPrerelease:true})+'\n',{mode:0o600});
+    fs.writeFileSync(settingsFile,JSON.stringify({owner:'codex-usage-badge-updater-v1',enabled:false,allowPrerelease:true})+'\n',{mode:0o600});
     fs.writeFileSync(path.join(installDir,'installed-version.json'),JSON.stringify({schema:1,platform:'macOS',repository:'sz6660/codex-usage-badge',version:VERSION,app:fs.realpathSync(app),codexHome:process.env.CODEX_HOME||''})+'\n',{mode:0o600});
-    // Keep an already loaded updater alive: it may be waiting for this child installer.
-    if(!existingUpdater){command('/bin/launchctl',['bootstrap',gui,updaterPlist]);startedUpdater=true;}
+    // Updates are requested manually; do not register a background updater.
     record({state:'installed',message:'自动加载已启用，下次从原客户端图标启动即可'});
   } catch(error) {
     let rollbackError;
     try {
-      if(startedUpdater)await stop(updaterLabel);
-      await stop(startupLabel);await stop(label);restore();
+      await stop(startupLabel);await stop(label);
+      environmentTransaction?.rollback();restore();
       for(const [,file] of previousJobs)if(fs.existsSync(file))command('/bin/launchctl',['bootstrap',gui,file]);
     }catch(failure){rollbackError=failure;}
     throw new Error(`安装失败：${error.message}。${rollbackError?`恢复旧版失败：${rollbackError.message}`:'已恢复安装前的程序文件'}`);
   }
   try {await cleanupLegacyLauncher({home,app,installDir,bridge:path.join(startupDir,'bridge'),command,ownedLauncher,ownedShortcut});}
   catch(error){console.warn('自动加载已安装；旧快捷方式需手动移除：'+error.message);}
-  console.log(`已安装 v${VERSION}，默认开启自动更新。完全退出客户端后，从原来的 Codex 图标打开，等待 5–10 秒。`);
+  console.log(`已安装 v${VERSION}，环境变量已自动配置，自动更新已关闭。请自行完全退出客户端，再从原来的 Codex 图标打开；插件不会自动重开客户端。`);
 }
 async function targets() {
   const response=await fetch('http://127.0.0.1:39222/json/list',{signal:AbortSignal.timeout(2000)});
@@ -288,7 +291,9 @@ async function cleanupUi() {
 }
 async function uninstall(){return operation(uninstallUnlocked);}
 async function uninstallUnlocked() {
+  environment.checkRestore();
   for(const job of [updaterLabel,startupLabel,'com.codexusagebadge.install-once',activationLabel,label])await stop(job);
+  environment.restore();
   await cleanupUi();
   const trash=path.join(home,'.Trash',`CodexUsageBadge-${Date.now()}`);fs.mkdirSync(trash,{recursive:true});
   const paths=[updaterPlist,startupPlist,plistPath,...(ownedShortcut()?[desktopLauncher]:[]),...(ownedLauncher()?[launcher]:[]),installDir,...['out.log','err.log','activate.log','activate.err.log','startup.out.log','startup.err.log','updater.out.log','updater.err.log'].map(s=>path.join(logs,`CodexUsageBadge.${s}`))];
@@ -301,10 +306,12 @@ async function uninstallUnlocked() {
 }
 async function status() {
   console.log('版本：'+VERSION);
+  console.log('已安装：'+fs.existsSync(path.join(installDir,'installed-version.json')));
+  console.log('环境配置：'+JSON.stringify(environment.status()));
   console.log('自动加载：'+(/state = running/.test(loaded(startupLabel)||'')?'运行中':'未运行'));
   console.log('后台：'+(/state = running/.test(loaded(label)||'')?'运行中':'未运行'));
-  console.log('自动更新任务：'+(loaded(updaterLabel)?'已注册':'未注册'));
-  try{console.log(command(node,[path.join(installDir,'updater/worker.cjs'),'status']));}catch{}
+  console.log('后台自动检查更新：已移除；需要更新时请手动检查。');
+
   let pages=[];try{pages=await targets();}catch{}
   console.log('主窗口连接数：'+pages.length);
   for(let i=0;i<pages.length;i++)console.log('窗口 '+(i+1),await evaluate(pages[i],'({usage:window.__codexUsageBadge?.status()??null,projectColors:window.__codexProjectColors?.status()??null,threadTokens:window.__codexThreadTokens?.status()??null,projectSizes:window.__codexProjectSizes?.status()??null})'));
@@ -314,15 +321,8 @@ module.exports={startupConfig,updaterConfig,agentConfig,activationConfig,waitFor
 if(require.main===module)(async()=>{
   const action=process.argv[2];
   if(action==='install')await install();
-  else if(action==='schedule-activation')await scheduleActivation({waitForExit:process.argv.includes('--wait-for-exit')});
-  else if(action==='activate'){await pause(3000);await activate({allowRestart:process.argv.includes('--allow-restart')});}
-  else if(action==='activate-after-exit')await activateAfterExit();
-  else if(action==='launch')await activate({foreground:true});
   else if(action==='uninstall')await uninstall();
   else if(action==='status')await status();
-  else if(action==='update-check')console.log(command(node,[path.join(installDir,'updater/worker.cjs'),'check'],{timeout:30000}));
-  else if(action==='update-disable')console.log(command(node,[path.join(installDir,'updater/worker.cjs'),'disable']));
-  else if(action==='update-enable')console.log(command(node,[path.join(installDir,'updater/worker.cjs'),'enable']));
   else throw new Error('未知操作：'+action);
 })().catch(error=>{
   console.error(error.message);

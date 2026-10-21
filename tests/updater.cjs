@@ -15,7 +15,7 @@ function zip(entries){
   const directory=Buffer.concat(central),end=Buffer.alloc(22);end.writeUInt32LE(0x06054b50);end.writeUInt16LE(entries.length,8);end.writeUInt16LE(entries.length,10);end.writeUInt32LE(directory.length,12);end.writeUInt32LE(offset,16);
   return Buffer.concat([...locals,directory,end]);
 }
-const contents=Object.fromEntries(['agent.cjs','manage.cjs','macos/shortcuts.cjs','macos/startup/bridge','macos/startup/controller.cjs','macos/startup/watch.cjs','updater/core.cjs','updater/worker.cjs','updater/run.sh'].map(n=>[n,Buffer.from('fixture') ]));
+const contents=Object.fromEntries(['agent.cjs','manage.cjs','macos/shortcuts.cjs','macos/environment.cjs','macos/startup/bridge','macos/startup/controller.cjs','macos/startup/watch.cjs','updater/core.cjs','updater/worker.cjs','updater/run.sh'].map(n=>[n,Buffer.from('fixture') ]));
 contents['update.json']=Buffer.from(JSON.stringify({schema:1,repository:repo,platform:'macOS',version}));
 contents['SHA256SUMS.txt']=Buffer.from(Object.entries(contents).map(([n,b])=>`${hash(b)}  ${n}\n`).join(''));
 const entries=Object.entries(contents).map(([n,b])=>[`CodexUsageBadge-macOS-${version}/${n}`,b,n.endsWith('bridge')?0o100755:0o100644]);

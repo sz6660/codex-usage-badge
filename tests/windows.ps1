@@ -25,6 +25,16 @@ Assert ($run -notmatch 'Launch-Badge|\$config.AppExe\s+-ArgumentList|\.focus\(|A
 Assert ($run -match 'WindowStyle Hidden' -and $run -match 'CODEX_BADGE_STOP_FILE') 'hidden child and graceful stop'
 Write-Host 'PASS PowerShell parsing, argument quoting, no background activation'
 
+# All environment changes are simulated in memory; no host registry changes.
+$script:badgeTestEnvironment=@{}
+function Get-TrialUserValue([string]$Name){$script:badgeTestEnvironment[$Name]}
+function Set-TrialUserValue([string]$Name,$Value){$script:badgeTestEnvironment[$Name]=$Value}
+function Notify-TrialEnvironment {}
+function Get-BadgeProfilePath {
+    $profile=Join-Path $env:LOCALAPPDATA 'fixture-profile'
+    [void][IO.Directory]::CreateDirectory($profile)
+    return $profile
+}
 $temp = Join-Path ([IO.Path]::GetTempPath()) ('badge-windows-中文 空格-' + [guid]::NewGuid().ToString('N'))
 [void][IO.Directory]::CreateDirectory($temp)
 $oldLocal = $env:LOCALAPPDATA; $oldHome = $env:USERPROFILE; $oldCodexHome = $env:CODEX_HOME
