@@ -87,7 +87,7 @@ try {
         $case=[ordered]@{name=$name;activationCalls=1;arguments='';startedAt=[DateTime]::UtcNow.ToString('o');processes=@();windows=@();trace=@();firstVisibleMs=$null;debugPortReadyMs=$null;visiblePidChanged=$false;errors=@()}
         $report.cases+=,$case
         $seen=@{};$known=@{};$firstVisiblePid=$null
-        $eventNames=@('research-start-'+$name,'research-stop-'+$name)
+        $eventNames=@(('research-start-'+$name),('research-stop-'+$name))
         try {
             Register-WmiEvent -Query "SELECT * FROM Win32_ProcessStartTrace WHERE ProcessName='ChatGPT.exe'" -SourceIdentifier $eventNames[0] | Out-Null
             Register-WmiEvent -Query "SELECT * FROM Win32_ProcessStopTrace WHERE ProcessName='ChatGPT.exe'" -SourceIdentifier $eventNames[1] | Out-Null
@@ -132,13 +132,13 @@ try {
             if($LASTEXITCODE -ne 0){$case.errors+='Renderer probe process failed'}
             Start-Sleep -Seconds 15
             $case.afterInjectionPids=@(Get-TestProcesses|Where-Object {$_.CommandLine -notmatch '--type='}|ForEach-Object {$_.ProcessId})
-            $case.sameMainProcessAcrossInjection=(@(Compare-Object $case.beforeInjectionPids $case.afterInjectionPids).Count -eq 0 -and $case.beforeInjectionPids.Count -gt 0)
+            $case.sameMainProcessAcrossInjection=($case.beforeInjectionPids.Count -gt 0 -and $case.afterInjectionPids.Count -gt 0 -and @(Compare-Object $case.beforeInjectionPids $case.afterInjectionPids).Count -eq 0)
         } catch {$case.errors+=$_.Exception.Message}
         finally {
             foreach($eventName in $eventNames){Unregister-Event -SourceIdentifier $eventName -ErrorAction SilentlyContinue;Get-Event -SourceIdentifier $eventName -ErrorAction SilentlyContinue|Remove-Event}
             $eventNames=@()
             Save-Report
-            Write-Host ($case|ConvertTo-Json -Depth 8 -Compress)
+            Write-Host (@{name=$case.name;firstVisibleMs=$case.firstVisibleMs;debugPortReadyMs=$case.debugPortReadyMs;sameMainProcess=$case.sameMainProcessAcrossInjection;errors=$case.errors}|ConvertTo-Json -Depth 5 -Compress)
         }
     }
     $report.asarUnchanged=((Get-FileHash -LiteralPath $asar -Algorithm SHA256).Hash -eq $beforeHash)
@@ -151,4 +151,4 @@ try {
     [EntryResearch]::NotifyEnvironment()
     Save-Report
 }
-if(!$report.installed -or $report.errors.Count){throw 'Research environment or installation failed; see report.json'}
+if(!$report.installed -or $report.errors.Count -or @($report.cases|Where-Object {$_.errors.Count}).Count){throw 'Research environment or case execution failed; see report.json'}
