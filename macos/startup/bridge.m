@@ -73,7 +73,10 @@ static NSString *pointerClientKey(NSString *path) {
     CGPoint point=CGEventGetLocation(event);CFRelease(event);
     NSArray *windows=CFBridgingRelease(CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly|kCGWindowListExcludeDesktopElements,kCGNullWindowID));
     for(NSDictionary *window in windows) {
-        if([window[(__bridge id)kCGWindowLayer] intValue]!=0)continue;
+        // Respect the Dock/menus above ordinary windows instead of attributing
+        // their clicks to a client window underneath them.
+        int layer=[window[(__bridge id)kCGWindowLayer] intValue];
+        if(layer<0||layer>=1000||[window[(__bridge id)kCGWindowAlpha] doubleValue]==0)continue;
         CGRect bounds;
         if(!CGRectMakeWithDictionaryRepresentation((__bridge CFDictionaryRef)window[(__bridge id)kCGWindowBounds],&bounds)||!CGRectContainsPoint(bounds,point))continue;
         NSRunningApplication *owner=[NSRunningApplication runningApplicationWithProcessIdentifier:[window[(__bridge id)kCGWindowOwnerPID] intValue]];
