@@ -143,7 +143,8 @@ int main(int argc, const char *argv[]) { @autoreleasepool {
         NSDictionary *current=snapshot(path);
         if ([current[@"apps"] count] || ![current[@"inputStamp"] isEqualToString:@(argv[3])] || [current[@"frontmostPid"] intValue]!=atoi(argv[4])) { output(@{@"launched":@NO}); return 0; }
         NSWorkspaceOpenConfiguration *config=NSWorkspaceOpenConfiguration.configuration;
-        config.activates=NO; config.hides=YES; config.addsToRecentItems=NO;
+        // Do not launch hidden: a later input/focus change must not strand the app.
+        config.activates=NO; config.hides=NO; config.addsToRecentItems=NO;
         config.arguments=@[@"--remote-debugging-address=127.0.0.1", @"--remote-debugging-port=39222"];
         __block BOOL done=NO;
         [NSWorkspace.sharedWorkspace openApplicationAtURL:[NSURL fileURLWithPath:path] configuration:config completionHandler:^(NSRunningApplication *a,NSError *e){
@@ -154,12 +155,26 @@ int main(int argc, const char *argv[]) { @autoreleasepool {
         return done?0:3;
     }
     if ([action isEqualToString:@"show"] && argc==7) {
+        NSDate *deadline=[NSDate dateWithTimeIntervalSinceNow:15];
+        BOOL mayActivate=YES;
+        while (deadline.timeIntervalSinceNow>0) {
         NSRunningApplication *a=[NSRunningApplication runningApplicationWithProcessIdentifier:atoi(argv[3])];
         NSDictionary *args = a ? argumentsState(a.processIdentifier) : @{};
         double age = a.launchDate ? (NSDate.date.timeIntervalSince1970-a.launchDate.timeIntervalSince1970)*1000 : INFINITY;
-        BOOL safe=matches(a,path) && age>=0 && age<=30000 && [identity(a) isEqualToString:@(argv[4])] && [args[@"known"] boolValue] && [args[@"port"] isEqual:@"39222"] && [inputStamp() isEqualToString:@(argv[5])] && NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier==atoi(argv[6]);
-        if (safe) { [a unhide]; safe=[a activateWithOptions:NSApplicationActivateAllWindows]; }
-        output(@{@"shown":safe ? @YES : @NO}); return 0;
+        BOOL safe=matches(a,path) && age>=0 && age<=60000 && [identity(a) isEqualToString:@(argv[4])] && [args[@"known"] boolValue] && [args[@"port"] isEqual:@"39222"];
+        if (!safe) { output(@{@"shown":@NO,@"activated":@NO,@"reason":@"identity-or-arguments"}); return 0; }
+        pid_t front=NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier;
+        if (![inputStamp() isEqualToString:@(argv[5])] || (front!=atoi(argv[6]) && front!=a.processIdentifier)) mayActivate=NO;
+        if (a.finishedLaunching) {
+            [a unhide];
+            front=NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier;
+            BOOL activate=mayActivate && [inputStamp() isEqualToString:@(argv[5])] && (front==atoi(argv[6]) || front==a.processIdentifier);
+            BOOL activated=activate && [a activateWithOptions:NSApplicationActivateAllWindows];
+            output(@{@"shown":a.hidden ? @NO : @YES,@"activated":activated ? @YES : @NO,@"reason":activated ? @"visible-and-active" : @"visible-without-focus"}); return 0;
+        }
+        [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.1]];
+        }
+        output(@{@"shown":@NO,@"activated":@NO,@"reason":@"window-timeout"}); return 0;
     }
     return 2;
 } }

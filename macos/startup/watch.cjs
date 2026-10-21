@@ -31,7 +31,8 @@ const adapter={
     socket.setTimeout(350,()=>done(true));
   }),
   async record(event,details={}) {
-    state={...state,...details,event,updatedAt:Date.now()};
+    const {message,reason,shown,activated,...previous}=state;
+    state={...previous,...details,event,updatedAt:Date.now()};
     const temp=receipt+'.tmp';
     fs.writeFileSync(temp,JSON.stringify(state,null,2)+'\n',{mode:0o600});
     fs.renameSync(temp,receipt);

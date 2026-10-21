@@ -34,6 +34,8 @@ Windows 启动适配器测试：`powershell -NoProfile -ExecutionPolicy Bypass -
 
 `build_release.py` 在 macOS 生成两个平台的 ZIP，在 Windows 生成 Windows ZIP。文件输出到 `dist/`，附带 SHA256 校验清单。发布前将本次源码加入 Git 暂存区，再执行隐私检查；检查覆盖所有受跟踪源码和安装包。
 
+本 fork 的 `main`、`fix/**` 分支推送和手动 Actions 执行都会运行双平台验证，并上传通过测试的安装包（保留 30 天），不会创建 Release。macOS 作业沿用上述脚本构建包含 arm64 / x86_64 原生助手的 macOS ZIP 以及 Windows ZIP；Windows 作业独立构建并验证 Windows ZIP。自动更新来源固定为 `sz6660/codex-usage-badge`。
+
 ## 数据与兼容性
 
 额度来自客户端 CLI 的账号接口。Plus 显示短周期与每周额度，Pro 显示周额度；大于 50% 为绿、10%～50% 为黄、小于 10% 为红。

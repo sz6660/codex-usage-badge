@@ -1,8 +1,8 @@
 'use strict';
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 class StartupController {
-  constructor(adapter, {now=Date.now, sleep=delay, lastAttemptAt=0, cooldownMs=120000}={}) {
-    Object.assign(this,{adapter,now,sleep,lastAttemptAt,cooldownMs});
+  constructor(adapter, {now=Date.now, sleep=delay, lastAttemptAt=0}={}) {
+    Object.assign(this,{adapter,now,sleep,lastAttemptAt});
     this.baselined=false; this.seen=new Set(); this.busy=false; this.stopped=false;
   }
   stop() { this.stopped=true; }
@@ -35,9 +35,8 @@ class StartupController {
       if(age<0||age>8000||snapshot.inputIdleMs<age||snapshot.frontmostPid!==app.pid) {
         await this.adapter.record('skipped-active-or-background'); return;
       }
-      if(this.lastAttemptAt && this.now()-this.lastAttemptAt<this.cooldownMs) {
-        await this.adapter.record('skipped-cooldown'); return;
-      }
+      // Each process identity is handled once, including our replacement below.
+      // A different user launch must not be suppressed by a global cooldown.
       if(await this.adapter.portInUse()) { await this.adapter.record('port-in-use'); return; }
       if(this.stopped)return;
       // Durable receipt must succeed before any quit request. A failure/restart cannot cause a loop.
@@ -67,13 +66,15 @@ class StartupController {
         for(const a of beforeLaunch.apps)this.seen.add(a.key);
         await this.adapter.record('reopen-canceled'); return;
       }
-      const opened=await this.adapter.launch(snapshot.inputStamp,beforeLaunch.frontmostPid); // hidden, no activation
+      const opened=await this.adapter.launch(snapshot.inputStamp,beforeLaunch.frontmostPid);
       if(!opened.launched) { await this.adapter.record('launch-failed'); return; }
       if(opened.key)this.seen.add(opened.key);
       if(this.stopped)return;
-      // Only complete the user's original foreground launch if they have not interacted elsewhere.
+      // Visibility must not depend on permission to take foreground focus.
       const shown=await this.adapter.show(opened,snapshot.inputStamp,beforeLaunch.frontmostPid);
-      await this.adapter.record('reopened',{shown:!!shown.shown,processKey:opened.key});
+      await this.adapter.record(shown.shown?'reopened':'reopened-window-pending',{
+        shown:!!shown.shown,activated:!!shown.activated,reason:shown.reason||null,processKey:opened.key
+      });
     } catch(error) {
       await this.adapter.record('error',{message:error.message}).catch(()=>{});
     } finally { this.busy=false; }

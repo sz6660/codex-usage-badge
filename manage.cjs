@@ -6,7 +6,7 @@ const { execFileSync, spawn } = require('node:child_process');
 const { resolveCodexBin, isMainWindow } = require('./agent.cjs');
 const {cleanupLegacyLauncher}=require('./macos/shortcuts.cjs');
 const {acquireLock,readJson,compareVersions}=require('./updater/core.cjs');
-const VERSION='0.9.4';
+const VERSION='0.9.5';
 const home = os.homedir();
 const app = process.env.CODEX_BADGE_APP || ['/Applications/Codex.app','/Applications/ChatGPT.app',path.join(home,'Applications/Codex.app'),path.join(home,'Applications/ChatGPT.app')].find(candidate => { try { resolveCodexBin(undefined,candidate); return true; } catch { return false; } }) || '/Applications/Codex.app';
 const node = process.execPath;
@@ -164,7 +164,7 @@ async function installUnlocked() {
     if(!ready)throw new Error('启动助手未能就绪');
     const settingsFile=path.join(installDir,'update-settings.json');
     if(!fs.existsSync(settingsFile))fs.writeFileSync(settingsFile,JSON.stringify({owner:'codex-usage-badge-updater-v1',enabled:true,allowPrerelease:true})+'\n',{mode:0o600});
-    fs.writeFileSync(path.join(installDir,'installed-version.json'),JSON.stringify({schema:1,platform:'macOS',repository:'jaykinhoo9/codex-usage-badge',version:VERSION,app:fs.realpathSync(app),codexHome:process.env.CODEX_HOME||''})+'\n',{mode:0o600});
+    fs.writeFileSync(path.join(installDir,'installed-version.json'),JSON.stringify({schema:1,platform:'macOS',repository:'sz6660/codex-usage-badge',version:VERSION,app:fs.realpathSync(app),codexHome:process.env.CODEX_HOME||''})+'\n',{mode:0o600});
     // Keep an already loaded updater alive: it may be waiting for this child installer.
     if(!existingUpdater){command('/bin/launchctl',['bootstrap',gui,updaterPlist]);startedUpdater=true;}
     record({state:'installed',message:'自动加载已启用，下次从原客户端图标启动即可'});

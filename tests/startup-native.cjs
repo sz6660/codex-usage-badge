@@ -30,7 +30,10 @@ async function waitUntil(test){for(let i=0;i<50;i++){if(test())return;await slee
   const current=await call('snapshot');assert.equal(current.apps.length,1);
   assert.equal(current.apps[0].debugPort,'39222');assert.equal(current.apps[0].key,opened.key);
   assert.equal(current.frontmostPid,initial.frontmostPid,'Hidden launch must not steal focus');
-  assert.equal((await call('show',childPid,opened.key,'invalid-input-stamp',initial.frontmostPid)).shown,false);
+  const revealed=await call('show',childPid,opened.key,'invalid-input-stamp',initial.frontmostPid);
+  assert.equal(revealed.activated,false,'Changed input must still prevent foreground activation');
+  assert.equal((await call('snapshot')).frontmostPid,initial.frontmostPid,'Recovery must preserve another app foreground');
+  assert.equal((await call('show',childPid,'wrong-identity',initial.inputStamp,initial.frontmostPid)).shown,false);
   assert.equal((await call('quit',childPid,opened.key,current.inputStamp)).accepted,false,'Background debugging fixture must not be restarted');
   const beforeExit=events.length;
   process.kill(childPid,'SIGTERM');childPid=null;

@@ -1,7 +1,7 @@
 'use strict';
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),os=require('node:os'),crypto=require('node:crypto');
 const {compareVersions,selectRelease,readArchive,extractArchive,updateOnce,acquireLock,writeJson,readJson,fetchBytes}=require('../updater/core.cjs');
-const repo='jaykinhoo9/codex-usage-badge',version='0.9.5';
+const repo='sz6660/codex-usage-badge',version='0.9.5';
 const hash=b=>crypto.createHash('sha256').update(b).digest('hex');
 function crc(data){let n=0xffffffff;for(const byte of data){n^=byte;for(let i=0;i<8;i++)n=n&1?(n>>>1)^0xedb88320:n>>>1;}return(n^0xffffffff)>>>0;}
 function zip(entries){

@@ -1,7 +1,7 @@
 name: Test and audit
 on:
   push:
-    branches: [main]
+    branches: [main, 'fix/**']
   pull_request:
   workflow_dispatch:
 permissions:
@@ -45,3 +45,12 @@ jobs:
         shell: powershell
         run: ./tests/windows-startup-native.ps1
       - run: python scripts/audit_release.py
+      - name: Upload verified installation packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: CodexUsageBadge-${{ runner.os }}-${{ github.sha }}
+          path: |
+            dist/*.zip
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30

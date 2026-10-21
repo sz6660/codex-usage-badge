@@ -29,10 +29,16 @@ using System.Windows.Forms;
 public class StartupFixture : Form {
     static string Root=AppDomain.CurrentDomain.BaseDirectory;
     Timer timer=new Timer();
+    DateTime started=DateTime.UtcNow;
     public StartupFixture() {
+        bool delayed=File.Exists(Path.Combine(Root,"delay-title"));
+        Text=delayed?"":"Badge startup recovery fixture";
         var handle=Handle;
         File.WriteAllText(Path.Combine(Root,"ready"),"ready");
-        timer.Interval=100;timer.Tick+=(s,e)=>{if(File.Exists(Path.Combine(Root,"stop"))) Application.Exit();};timer.Start();
+        timer.Interval=100;timer.Tick+=(s,e)=>{
+            if(delayed&&(DateTime.UtcNow-started).TotalSeconds>=6) Text="Badge delayed recovery fixture";
+            if(File.Exists(Path.Combine(Root,"stop"))) Application.Exit();
+        };timer.Start();
     }
     protected override void SetVisibleCore(bool value) { base.SetVisibleCore(false); }
     protected override void WndProc(ref Message message) {
@@ -103,17 +109,22 @@ public class StartupFixture : Form {
     Assert $activationFailed 'Invalid Store identity must fail activation'
     Assert (([CodexUsageBadge.Startup.Native]::TakeSnapshot()).apps.Count -eq 0) 'Store activation failure must not fall back to an executable'
     $idField.SetValue($null,$null)
-    # This fixture overrides SetVisibleCore, so the native launch cannot display a window.
+    # Initially hidden with a title arriving after the old five-second timeout.
+    [IO.File]::WriteAllText((Join-Path $temp 'delay-title'),'delay')
     $snapshot=[CodexUsageBadge.Startup.Native]::TakeSnapshot()
     $reply=[CodexUsageBadge.Startup.Native]::Launch($snapshot.inputStamp,$snapshot.frontmostPid)
-    Assert $reply.launched 'Hidden native reopen failed (do not interact during test)'
+    Assert $reply.launched 'Native reopen failed (do not interact during test)'
     $child=[Diagnostics.Process]::GetProcessById($reply.pid)
     $snapshot=[CodexUsageBadge.Startup.Native]::TakeSnapshot()
     Assert ($snapshot.apps.Count -eq 1 -and $snapshot.apps[0].key -eq $reply.key -and $snapshot.apps[0].debugPort -eq '39222') 'Relaunch must return correct process identity and debugging flags'
+    $recoveryTimer=[Diagnostics.Stopwatch]::StartNew()
     $shown=[CodexUsageBadge.Startup.Native]::Show($reply.pid,$reply.key,'invalid-input-stamp',$snapshot.frontmostPid)
-    Assert (!$shown.shown) 'Changed input must prevent showing a replacement'
+    Assert ($shown.shown -and !$shown.activated) 'Changed input must still reveal the replacement without taking focus'
+    Assert ($recoveryTimer.Elapsed.TotalSeconds -ge 5) 'Must wait for the delayed application window, not report an IME/helper window as recovered'
+    $wrong=[CodexUsageBadge.Startup.Native]::Show($reply.pid,'wrong-identity',$snapshot.inputStamp,$snapshot.frontmostPid)
+    Assert (!$wrong.shown) 'Recovery must never reveal a different process identity'
     Stop-Fixture
-    Write-Host 'PASS native process identity/arguments, background guards, normal OS shutdown, refusal, hidden relaunch, input cancellation and stop guard'
+    Write-Host 'PASS native identity/arguments, shutdown/refusal, delayed hidden-window recovery beyond five seconds, changed-input visibility without activation and stop guard'
 } catch {
     $testFailure=$_
 } finally {
@@ -132,3 +143,4 @@ public class StartupFixture : Form {
     }
 }
 if($testFailure) { throw $testFailure }
+

@@ -107,6 +107,12 @@ namespace CodexUsageBadge.Startup {
         [DllImport("user32.dll")] static extern bool IsWindowEnabled(IntPtr window);
         [DllImport("user32.dll")] static extern bool ShowWindowAsync(IntPtr window, int command);
         [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr window);
+        delegate bool EnumWindowCallback(IntPtr window, IntPtr parameter);
+        [DllImport("user32.dll")] static extern bool EnumWindows(EnumWindowCallback callback, IntPtr parameter);
+        [DllImport("user32.dll")] static extern IntPtr GetWindow(IntPtr window, uint command);
+        [DllImport("user32.dll",CharSet=CharSet.Unicode)] static extern int GetWindowTextLength(IntPtr window);
+        [DllImport("user32.dll",CharSet=CharSet.Unicode)] static extern int GetClassName(IntPtr window,StringBuilder name,int capacity);
+        [DllImport("user32.dll",EntryPoint="GetWindowLongW")] static extern int GetWindowStyle(IntPtr window,int index);
         [DllImport("shell32.dll", CharSet=CharSet.Unicode)] static extern IntPtr CommandLineToArgvW(string text, out int count);
         [DllImport("kernel32.dll")] static extern IntPtr LocalFree(IntPtr memory);
         [DllImport("kernel32.dll",CharSet=CharSet.Unicode,SetLastError=true)]
@@ -279,27 +285,55 @@ namespace CodexUsageBadge.Startup {
                 } finally { Marshal.ReleaseComObject(manager); }
             }
             var info=new ProcessStartInfo(appPath,flags) {
-                UseShellExecute=false,WindowStyle=ProcessWindowStyle.Hidden,WorkingDirectory=Path.GetDirectoryName(appPath)};
+                UseShellExecute=false,WindowStyle=ProcessWindowStyle.Normal,WorkingDirectory=Path.GetDirectoryName(appPath)};
             return Process.Start(info);
         }
+        static IntPtr FindApplicationWindow(int pid) {
+            // MainWindowHandle can be zero for a hidden or not-yet-ready Electron window.
+            // Ignore owned dialogs and untitled helper/message windows.
+            IntPtr result=IntPtr.Zero;
+            EnumWindows((window,parameter)=>{
+                int owner; GetWindowThreadProcessId(window,out owner);
+                if(owner!=pid || GetWindow(window,4)!=IntPtr.Zero || GetWindowTextLength(window)==0 ||
+                    !IsWindowEnabled(window) || (GetWindowStyle(window,-20)&0x80)!=0) return true;
+                var name=new StringBuilder(256); GetClassName(window,name,name.Capacity);
+                string windowClass=name.ToString();
+                // Codex uses Electron; Windows Forms is used by the isolated OS fixture.
+                // Never reveal IME, .NET broadcast or other infrastructure windows.
+                if(windowClass!="Chrome_WidgetWin_1" && !windowClass.StartsWith("WindowsForms10.Window.",StringComparison.Ordinal)) return true;
+                if(result==IntPtr.Zero) result=window;
+                if(!IsWindowVisible(window)) return true;
+                result=window; return false;
+            },IntPtr.Zero);
+            return result;
+        }
         public static object Show(int pid,string key,string stamp,int foreground) {
-            // Only the verified replacement may receive focus; Store activation can already have shown it.
+            // Reveal only the verified replacement. Input/focus changes cancel activation,
+            // not visibility: otherwise a successful restart can strand a hidden client.
             var deadline=Stopwatch.StartNew();
-            while(deadline.ElapsedMilliseconds<5000) {
+            bool mayActivate=true;
+            while(deadline.ElapsedMilliseconds<15000) {
                 var s=TakeSnapshot();
-                if(Stopped()||s.inputStamp!=stamp||(s.frontmostPid!=foreground&&s.frontmostPid!=pid)) return new {shown=false};
+                if(Stopped()) return new {shown=false,activated=false,reason="stopped"};
+                if(s.inputStamp!=stamp||(s.frontmostPid!=foreground&&s.frontmostPid!=pid)) mayActivate=false;
                 var a=s.apps.FirstOrDefault(x=>x.pid==pid&&x.key==key);
-                if(a==null||a.debugPort!="39222"||Now-a.launchedAt>30000) return new {shown=false};
-                using(var p=Process.GetProcessById(pid)) {
-                    IntPtr window=p.MainWindowHandle;
-                    if(window!=IntPtr.Zero) {
-                        ShowWindowAsync(window,4); // SW_SHOWNOACTIVATE; foreground permission may be refused by Windows.
-                        return new {shown=SetForegroundWindow(window)};
+                if(a==null||a.debugPort!="39222"||Now-a.launchedAt>60000) return new {shown=false,activated=false,reason="identity-or-arguments"};
+                IntPtr window=FindApplicationWindow(pid);
+                if(window!=IntPtr.Zero) {
+                    ShowWindowAsync(window,4); // SW_SHOWNOACTIVATE; never require foreground permission to show.
+                    Thread.Sleep(50);
+                    if(IsWindowVisible(window)) {
+                        // Recheck activity immediately before requesting foreground focus.
+                        var latest=TakeSnapshot();
+                        bool activate=mayActivate&&latest.inputStamp==stamp&&
+                            (latest.frontmostPid==foreground||latest.frontmostPid==pid);
+                        bool activated=activate&&SetForegroundWindow(window);
+                        return new {shown=true,activated=activated,reason=activated?"visible-and-active":"visible-without-focus"};
                     }
                 }
                 Thread.Sleep(100);
             }
-            return new {shown=false};
+            return new {shown=false,activated=false,reason="window-timeout"};
         }
     }
 }

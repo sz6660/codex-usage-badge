@@ -5,7 +5,7 @@ const {compareVersions,selectRelease,verifyArchive,checkForUpdate,getBytes,INTER
 const data=Buffer.from('synthetic Windows archive');
 const hash=crypto.createHash('sha256').update(data).digest('hex');
 function release(version,extra={}) {
-  const tag='v'+version+'-windows',base='https://github.com/jaykinhoo9/codex-usage-badge/releases/download/'+tag+'/';
+  const tag='v'+version+'-windows',base='https://github.com/sz6660/codex-usage-badge/releases/download/'+tag+'/';
   return {tag_name:tag,published_at:'2026-01-01T00:00:00Z',draft:false,assets:[
     {name:`CodexUsageBadge-Windows-${version}.zip`,state:'uploaded',size:data.length,digest:'sha256:'+hash,browser_download_url:base+`CodexUsageBadge-Windows-${version}.zip`},
     {name:'SHA256SUMS.txt',state:'uploaded',size:130,browser_download_url:base+'SHA256SUMS.txt'}

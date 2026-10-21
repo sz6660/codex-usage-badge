@@ -4,7 +4,7 @@ param(
     [switch]$DisableAutoUpdate, [switch]$AutomaticUpdate, [switch]$ForceUpdate
 )
 $ErrorActionPreference = 'Stop'
-$script:Version = '0.10.1'
+$script:Version = '0.10.2'
 $script:Owner = 'local.codexusagebadge.windows'
 
 function ConvertTo-NativeArgument([AllowEmptyString()][string]$Value) {

@@ -22,7 +22,7 @@ async function scenario({baseline=[],fresh=[app()],snapshot={},quit=true,exit=tr
   for(const snapshot of [{inputIdleMs:100},{frontmostPid:30}])await scenario({snapshot},({calls})=>assert.deepEqual(calls,[]));
   for(const overrides of [{launchedAt:1000},{launchedAt:101000},{argumentsKnown:false},{debugPort:'39222'},{debugPort:'9222'}])await scenario({fresh:[app('new',overrides)]},({calls})=>assert.deepEqual(calls,[]));
   await scenario({fresh:[app(),app('other',{pid:99})]},({calls})=>assert.deepEqual(calls,[]));
-  await scenario({lastAttemptAt:99000},({calls})=>assert.deepEqual(calls,[]));
+  await scenario({lastAttemptAt:99000},({calls})=>assert.deepEqual(calls,['quit','launch','show']));
   await scenario({portInUse:true},({calls,records})=>{assert.deepEqual(calls,[]);assert.ok(records.includes('port-in-use'));});
   await scenario({fresh:[app('new',{finishedLaunching:false})]},async({calls,control,setApps})=>{
     assert.deepEqual(calls,[]);assert.equal(control.pendingLaunch,true);
@@ -46,8 +46,8 @@ async function scenario({baseline=[],fresh=[app()],snapshot={},quit=true,exit=tr
   await scenario({onSleep:({stop})=>stop()},({calls})=>assert.deepEqual(calls,['quit']));
   await scenario({launch:false},({calls})=>assert.deepEqual(calls,['quit','launch']));
   await scenario({},async({calls,control,setApps,setNow})=>{
-    await control.tick();setApps([app('stripped-args')]);await control.tick();
-    setNow(500000);await control.tick(); // do not restart an ignored instance after cooldown
+    await control.tick();setApps([app('replacement')]);await control.tick();
+    setNow(500000);await control.tick(); // do not restart our replacement even if its flags disappear
     assert.deepEqual(calls,['quit','launch','show']);
   });
   // Switch to a browser during the launch callback: never activate Codex afterwards.
@@ -55,5 +55,5 @@ async function scenario({baseline=[],fresh=[app()],snapshot={},quit=true,exit=tr
   const adapter={snapshot:async()=>({apps,frontmostPid:apps.length?20:30,inputStamp:input,inputIdleMs:10000}),portInUse:async()=>false,record:async()=>{},quit:async()=>{calls.push('quit');apps=[];return{accepted:true};},launch:async()=>{calls.push('launch');input='2';return{launched:true,key:'newer',pid:21};},show:async(a,stamp)=>{if(stamp===input)calls.push('show');return{shown:false};}};
   const control=new StartupController(adapter,{now:()=>now,sleep:async ms=>{now+=ms;}});
   await control.tick();apps=[app()];await control.tick();assert.deepEqual(calls,['quit','launch']);
-  console.log('PASS startup guards: existing/old/background/interactive/ambiguous instances, known flags, receipt failure, cooldown, no retry, graceful refusal/timeout, user cancellation, manual reopen, stop and no focus after app switch');
+  console.log('PASS startup guards: existing/old/background/interactive/ambiguous instances, known flags, receipt failure, rapid relaunch, per-process no retry, graceful refusal/timeout, user cancellation, manual reopen, stop and no focus after app switch');
 })().catch(error=>{console.error(error);process.exitCode=1;});
