@@ -139,9 +139,9 @@ try {
                     try{$targets=Invoke-RestMethod -Uri "http://127.0.0.1:$port/json/list" -TimeoutSec 1;$case.debugPortReadyMs=$timer.ElapsedMilliseconds}catch{}
                 }
                 if($agent -and $null -eq $case.agentInjectedMs -and (Test-Path -LiteralPath $agentOut)){
-                    $agentLog=[IO.File]::ReadAllText($agentOut,[Text.Encoding]::UTF8)
+                    $agentLog=Get-Content -LiteralPath $agentOut -Raw -Encoding UTF8
                     # Match the fixed log suffix emitted only after a successful scan.
-                    if($agentLog.Contains(([char]0x5df2).ToString()+([char]0x6ce8).ToString()+([char]0x5165).ToString())){$case.agentInjectedMs=$timer.ElapsedMilliseconds}
+                    if($agentLog -and $agentLog.Contains(([char]0x5df2).ToString()+([char]0x6ce8).ToString()+([char]0x5165).ToString())){$case.agentInjectedMs=$timer.ElapsedMilliseconds}
                 }
                 if($name -like 'dev-override*' -and $null -ne $case.debugPortReadyMs -and $timer.Elapsed.TotalSeconds -ge 30){break}
                 if($name -notlike 'dev-override*' -and $timer.Elapsed.TotalSeconds -ge 40){break}
