@@ -84,13 +84,28 @@ try {
         if($name -ne 'baseline'){$values.CODEX_ELECTRON_CHROMIUM_SWITCHES=$switches}
         if($name -like 'dev-override*'){$values.BUILD_FLAVOR='dev'}
         Set-TestEnvironment $values
-        $case=[ordered]@{name=$name;activationCalls=1;arguments='';startedAt=[DateTime]::UtcNow.ToString('o');processes=@();windows=@();trace=@();firstVisibleMs=$null;debugPortReadyMs=$null;visiblePidChanged=$false;errors=@()}
+        $case=[ordered]@{name=$name;activationCalls=1;arguments='';startedAt=[DateTime]::UtcNow.ToString('o');processes=@();windows=@();trace=@();firstVisibleMs=$null;debugPortReadyMs=$null;agentInjectedMs=$null;visiblePidChanged=$false;errors=@()}
         $report.cases+=,$case
         $seen=@{};$known=@{};$firstVisiblePid=$null
+        $agent=$null
+        $agentStop=Join-Path $caseRoot 'agent-stop.request'
+        $agentOut=Join-Path $output ($name+'-agent.out.log')
         $eventNames=@(('research-start-'+$name),('research-stop-'+$name))
         try {
             Register-WmiEvent -Query "SELECT * FROM Win32_ProcessStartTrace WHERE ProcessName='ChatGPT.exe'" -SourceIdentifier $eventNames[0] | Out-Null
             Register-WmiEvent -Query "SELECT * FROM Win32_ProcessStopTrace WHERE ProcessName='ChatGPT.exe'" -SourceIdentifier $eventNames[1] | Out-Null
+            if($name -like 'dev-override*'){
+                $appExe=Join-Path $appInstall 'app/ChatGPT.exe'
+                $codexBin=& node -e "process.stdout.write(require('./agent.cjs').resolveCodexBin('',process.argv[1]))" $appExe
+                if($LASTEXITCODE -ne 0 -or !$codexBin){throw 'Cannot resolve isolated official CLI for real badge agent'}
+                $env:CODEX_BADGE_STOP_FILE=$agentStop
+                $agentPath=Join-Path $env:GITHUB_WORKSPACE 'agent.cjs'
+                $agentArgs=@(('"'+$agentPath+'"'),'--port',[string]$port,'--app',('"'+$appExe+'"'),'--codex-bin',('"'+$codexBin+'"'))
+                $agent=Start-Process -FilePath (Get-Command node).Source -ArgumentList $agentArgs -PassThru -WindowStyle Hidden -RedirectStandardOutput $agentOut -RedirectStandardError (Join-Path $output ($name+'-agent.err.log'))
+                Start-Sleep -Seconds 1
+                if($agent.HasExited){throw 'Isolated real badge agent exited before activation'}
+                $case.agentStartedBeforeActivation=$true
+            }
             $timer=[Diagnostics.Stopwatch]::StartNew()
             $case.activationPid=[EntryResearch]::Activate($aumid)
             $case.activationReturnedMs=$timer.ElapsedMilliseconds
@@ -123,22 +138,33 @@ try {
                 if($null -eq $case.debugPortReadyMs){
                     try{$targets=Invoke-RestMethod -Uri "http://127.0.0.1:$port/json/list" -TimeoutSec 1;$case.debugPortReadyMs=$timer.ElapsedMilliseconds}catch{}
                 }
+                if($agent -and $null -eq $case.agentInjectedMs -and (Test-Path -LiteralPath $agentOut)){
+                    $agentLog=[IO.File]::ReadAllText($agentOut,[Text.Encoding]::UTF8)
+                    # Match the fixed log suffix emitted only after a successful scan.
+                    if($agentLog.Contains(([char]0x5df2).ToString()+([char]0x6ce8).ToString()+([char]0x5165).ToString())){$case.agentInjectedMs=$timer.ElapsedMilliseconds}
+                }
                 if($name -like 'dev-override*' -and $null -ne $case.debugPortReadyMs -and $timer.Elapsed.TotalSeconds -ge 30){break}
                 if($name -notlike 'dev-override*' -and $timer.Elapsed.TotalSeconds -ge 40){break}
                 Start-Sleep -Milliseconds 500
             }
             $case.beforeInjectionPids=@(Get-TestProcesses|Where-Object {$_.CommandLine -notmatch '--type='}|ForEach-Object {$_.ProcessId})
-            & node (Join-Path $PSScriptRoot 'probe-renderer.cjs') $port (Join-Path $output ($name+'-renderer.json'))
+            $probeArgs=@((Join-Path $PSScriptRoot 'probe-renderer.cjs'),[string]$port,(Join-Path $output ($name+'-renderer.json')))
+            if($agent){$probeArgs+='--observe-only'}
+            & node @probeArgs
             if($LASTEXITCODE -ne 0){$case.errors+='Renderer probe process failed'}
             Start-Sleep -Seconds 15
             $case.afterInjectionPids=@(Get-TestProcesses|Where-Object {$_.CommandLine -notmatch '--type='}|ForEach-Object {$_.ProcessId})
             $case.sameMainProcessAcrossInjection=($case.beforeInjectionPids.Count -gt 0 -and $case.afterInjectionPids.Count -gt 0 -and @(Compare-Object $case.beforeInjectionPids $case.afterInjectionPids).Count -eq 0)
         } catch {$case.errors+=$_.Exception.Message}
         finally {
+            if($agent){
+                [IO.File]::WriteAllText($agentStop,'stop')
+                if(!$agent.WaitForExit(5000)){Stop-Process -Id $agent.Id -Force -ErrorAction SilentlyContinue}
+            }
             foreach($eventName in $eventNames){Unregister-Event -SourceIdentifier $eventName -ErrorAction SilentlyContinue;Get-Event -SourceIdentifier $eventName -ErrorAction SilentlyContinue|Remove-Event}
             $eventNames=@()
             Save-Report
-            Write-Host (@{name=$case.name;firstVisibleMs=$case.firstVisibleMs;debugPortReadyMs=$case.debugPortReadyMs;sameMainProcess=$case.sameMainProcessAcrossInjection;errors=$case.errors}|ConvertTo-Json -Depth 5 -Compress)
+            Write-Host (@{name=$case.name;firstVisibleMs=$case.firstVisibleMs;debugPortReadyMs=$case.debugPortReadyMs;agentInjectedMs=$case.agentInjectedMs;sameMainProcess=$case.sameMainProcessAcrossInjection;errors=$case.errors}|ConvertTo-Json -Depth 5 -Compress)
         }
     }
     $report.asarUnchanged=((Get-FileHash -LiteralPath $asar -Algorithm SHA256).Hash -eq $beforeHash)
