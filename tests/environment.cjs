@@ -31,7 +31,9 @@ try{
   env.restore();assert.equal(values.size,0);assert.equal(env.status().installed,false);env.restore();
   values.set('BUILD_FLAVOR','prod');values.set('CODEX_ELECTRON_CHROMIUM_SWITCHES','previous-switches');
   const custom=path.join(temp,'custom-profile');fs.mkdirSync(custom);values.set('CODEX_ELECTRON_USER_DATA_PATH',custom);
-  const transaction=env.prepare();assert.equal(env.status().profilePath,custom);transaction.rollback();
+  const transaction=env.prepare();assert.equal(env.status().profilePath,custom);
+  values.clear();env.applySession();assert.equal(env.status().variablesMatch,true,'login must reapply even when original session values were nonempty');
+  transaction.rollback();
   assert.equal(values.get('BUILD_FLAVOR'),'prod');assert.equal(values.get('CODEX_ELECTRON_CHROMIUM_SWITCHES'),'previous-switches');
   assert.equal(values.get('CODEX_ELECTRON_USER_DATA_PATH'),custom);assert.equal(env.status().installed,false);
   console.log('PASS macOS environment install, idempotence, login reapply, conflict refusal, partial-failure rollback, exact restore and custom profile (launchctl mocked)');

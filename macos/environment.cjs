@@ -8,7 +8,7 @@ const owner='local.codexusagebadge.environment-v1';
 function createEnvironment({home=os.homedir(),command=(bin,args)=>execFileSync(bin,args,{encoding:'utf8',timeout:10000})}={}){
   const root=path.join(home,'Library/Application Support/CodexUsageBadge-Environment');
   const backup=path.join(root,'environment-backup.json');
-  function get(key){try{return command('/bin/launchctl',['getenv',key]).trimEnd()||null;}catch(error){if(error.status===1)return null;throw error;}}
+  function get(key){try{return command('/bin/launchctl',['getenv',key]).replace(/\r?\n$/,'')||null;}catch(error){if(error.status===1)return null;throw error;}}
   function set(key,value){command('/bin/launchctl',value==null?['unsetenv',key]:['setenv',key,value]);}
   function read(){
     if(fs.existsSync(root)&&(!fs.lstatSync(root).isDirectory()||fs.lstatSync(root).isSymbolicLink()))throw Error('Environment backup directory is not a regular directory');
@@ -18,12 +18,17 @@ function createEnvironment({home=os.homedir(),command=(bin,args)=>execFileSync(b
     if(state.owner!==owner||![state.original,state.applied].every(o=>o&&Object.keys(o).length===3&&keys.every(k=>Object.hasOwn(o,k)&&(o[k]===null||typeof o[k]==='string'))))throw Error('Invalid environment backup');
     return state;
   }
-  function assertValues(state){for(const key of keys){const current=get(key);if(current!==state.applied[key]&&current!==state.original[key])throw Error('Environment changed after installation; refusing to overwrite: '+key);}}
+  function assertValues(state){
+    const current=snapshot();
+    // launchd session values disappear on logout, including pre-existing values.
+    if(keys.every(key=>current[key]===null))return;
+    for(const key of keys)if(current[key]!==state.applied[key]&&current[key]!==state.original[key])throw Error('Environment changed after installation; refusing to overwrite: '+key);
+  }
   function snapshot(){return Object.fromEntries(keys.map(key=>[key,get(key)]));}
   function change(values){
     const before=snapshot();
     try{for(const key of keys)set(key,values[key]);}
-    catch(error){for(const key of keys){try{set(key,before[key]);}catch(rollback){error.message+='; environment rollback failed: '+rollback.message;}}throw error;}
+    catch(error){for(const key of keys){try{set(key,before[key]);}catch(rollback){error.rollbackFailed=true;error.message+='; environment rollback failed: '+rollback.message;}}throw error;}
     return ()=>change(before);
   }
   function applySession(){const state=read();if(!state)throw Error('Environment backup is missing; run installation again');assertValues(state);change(state.applied);}
@@ -35,7 +40,7 @@ function createEnvironment({home=os.homedir(),command=(bin,args)=>execFileSync(b
     const state={owner,createdAt:new Date().toISOString(),original:snapshot(),applied:{BUILD_FLAVOR:'dev',CODEX_ELECTRON_CHROMIUM_SWITCHES:JSON.stringify({'remote-debugging-address':'127.0.0.1','remote-debugging-port':'39222'}),CODEX_ELECTRON_USER_DATA_PATH:profile}};
     fs.mkdirSync(root,{recursive:true,mode:0o700});
     fs.writeFileSync(backup,JSON.stringify(state,null,2)+'\n',{mode:0o600,flag:'wx'});
-    try{change(state.applied);}catch(error){fs.unlinkSync(backup);throw error;}
+    try{change(state.applied);}catch(error){if(!error.rollbackFailed)fs.unlinkSync(backup);throw error;}
     return {created:true,rollback(){change(state.original);fs.unlinkSync(backup);}};
   }
   function checkRestore(){const state=read();if(state)assertValues(state);return state;}
