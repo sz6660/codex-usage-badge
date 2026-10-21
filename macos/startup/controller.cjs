@@ -25,15 +25,20 @@ class StartupController {
         return;
       }
       const app=fresh[0], age=this.now()-app.launchedAt;
-      if(!app.argumentsKnown||app.debugPort!==null) { this.seen.add(app.key); return; }
-      // Wait for the initial launch to finish; never interrupt a partially initialized app.
-      if((!app.finishedLaunching||snapshot.frontmostPid!==app.pid) && age>=0 && age<=8000 && snapshot.inputIdleMs>=age) {
+      if(!app.argumentsKnown||app.plainLaunch===false||app.debugPort!==null) { this.seen.add(app.key); return; }
+      // Only activity attributed to this client protects it; other apps may stay active.
+      const clientIdle=app.inputIdleMs;
+      const known=typeof app.inputStamp==='string'&&app.inputStamp!=='unknown'&&Number.isFinite(clientIdle);
+      if((!app.finishedLaunching||!known) && age>=0 && age<=8000 && (!known||clientIdle>=age)) {
         this.pendingLaunch=true; return;
       }
-      // Remember even rejected candidates: do not revisit a running work window later.
       this.seen.add(app.key);
-      if(age<0||age>8000||snapshot.inputIdleMs<age||snapshot.frontmostPid!==app.pid) {
-        await this.adapter.record('skipped-active-or-background'); return;
+      if(age<0||age>8000||!known||clientIdle<age) {
+        await this.adapter.record('skipped-client-active',{
+          reason:age<0||age>8000?'launch-age':!known?'input-unavailable':'client-input',
+          ageMs:Math.round(age),clientInputIdleMs:known?Math.min(Math.round(clientIdle),86400000):null,
+          frontmostPid:snapshot.frontmostPid,processKey:app.key
+        }); return;
       }
       // Each process identity is handled once, including our replacement below.
       // A different user launch must not be suppressed by a global cooldown.
@@ -43,7 +48,7 @@ class StartupController {
       this.lastAttemptAt=this.now();
       await this.adapter.record('attempt',{lastAttemptAt:this.lastAttemptAt,processKey:app.key});
       if(this.stopped)return;
-      const quit=await this.adapter.quit(app,snapshot.inputStamp);
+      const quit=await this.adapter.quit(app,app.inputStamp);
       if(!quit.accepted) { await this.adapter.record('quit-refused'); return; }
       const deadline=this.now()+10000;
       let absent=null;
@@ -58,11 +63,10 @@ class StartupController {
       }
       if(this.stopped)return;
       if(!absent) { await this.adapter.record('quit-timeout'); return; }
-      // User input during shutdown means they may have canceled/changed their mind; do not reopen.
-      if(absent.inputStamp!==snapshot.inputStamp) { await this.adapter.record('canceled-by-input'); return; }
+      // Once our graceful quit completed, restore the client even if other apps receive input.
       await this.sleep(250);
       const beforeLaunch=await this.adapter.snapshot();
-      if(this.stopped||beforeLaunch.apps.length||beforeLaunch.inputStamp!==snapshot.inputStamp) {
+      if(this.stopped||beforeLaunch.apps.length) {
         for(const a of beforeLaunch.apps)this.seen.add(a.key);
         await this.adapter.record('reopen-canceled'); return;
       }
@@ -71,7 +75,7 @@ class StartupController {
       if(opened.key)this.seen.add(opened.key);
       if(this.stopped)return;
       // Visibility must not depend on permission to take foreground focus.
-      const shown=await this.adapter.show(opened,snapshot.inputStamp,beforeLaunch.frontmostPid);
+      const shown=await this.adapter.show(opened,snapshot.inputStamp,snapshot.frontmostPid===app.pid?beforeLaunch.frontmostPid:-1);
       await this.adapter.record(shown.shown?'reopened':'reopened-window-pending',{
         shown:!!shown.shown,activated:!!shown.activated,reason:shown.reason||null,processKey:opened.key
       });

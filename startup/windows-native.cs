@@ -20,6 +20,14 @@ namespace CodexUsageBadge.Startup {
         [DllImport("user32.dll",SetLastError=true)] static extern bool RegisterRawInputDevices(Device[] devices,uint count,uint size);
         [DllImport("user32.dll",SetLastError=true)] static extern uint GetRawInputData(IntPtr input,uint command,IntPtr data,ref uint size,uint headerSize);
         [DllImport("kernel32.dll")] static extern uint GetTickCount();
+        [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+        [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr window,out int pid);
+        [StructLayout(LayoutKind.Sequential)] struct Point { public int x,y; }
+        [DllImport("user32.dll")] static extern bool GetCursorPos(out Point point);
+        [DllImport("user32.dll")] static extern IntPtr WindowFromPoint(Point point);
+        [DllImport("user32.dll")] static extern IntPtr GetAncestor(IntPtr window,uint flags);
+        sealed class ProcessActivity { internal uint tick; internal long sequence; }
+        readonly Dictionary<int,ProcessActivity> processes=new Dictionary<int,ProcessActivity>();
         readonly object sync=new object();
         readonly ManualResetEvent ready=new ManualResetEvent(false);
         readonly Thread thread;
@@ -53,7 +61,39 @@ namespace CodexUsageBadge.Startup {
             if(count==UInt32.MaxValue||count<header+8) {available=false;return;}
             uint type=unchecked((uint)Marshal.ReadInt32(buffer));
             ushort flags=unchecked((ushort)Marshal.ReadInt16(buffer,(int)header+(type==0?4:2)));
-            if(Meaningful(type,flags)) lock(sync) {lastInput=GetTickCount();sequence++;}
+            if(Meaningful(type,flags)) {
+                int pid=0;
+                IntPtr target=GetForegroundWindow();
+                if(type==0) {
+                    Point point;
+                    target=GetCursorPos(out point)?WindowFromPoint(point):IntPtr.Zero;
+                    if(target!=IntPtr.Zero) target=GetAncestor(target,2); // root window, including inactive scrolling
+                }
+                if(target!=IntPtr.Zero) GetWindowThreadProcessId(target,out pid);
+                Record(pid);
+            }
+        }
+        internal void Record(int pid) {
+            lock(sync) {
+                lastInput=GetTickCount();sequence++;
+                if(pid<=0)return;
+                ProcessActivity entry;
+                if(!processes.TryGetValue(pid,out entry)) {
+                    // Bounded metadata only; clearing it disables takeover for unobserved processes.
+                    if(processes.Count>=1024) { available=false;return; }
+                    processes[pid]=entry=new ProcessActivity();
+                }
+                entry.tick=lastInput;entry.sequence++;
+            }
+        }
+        internal void ReadProcess(int pid,out string stamp,out double idle) {
+            lock(sync) {
+                ProcessActivity entry;
+                if(!available||!thread.IsAlive) { stamp="unknown";idle=0;return; }
+                if(!processes.TryGetValue(pid,out entry)) { stamp="0";idle=Double.MaxValue;return; }
+                stamp=entry.tick+":"+entry.sequence;
+                idle=unchecked(GetTickCount()-entry.tick);
+            }
         }
         internal void Read(out string stamp,out double idle) {
             lock(sync) {
@@ -82,6 +122,8 @@ namespace CodexUsageBadge.Startup {
         public double launchedAt;
         public bool finishedLaunching, argumentsKnown, plainLaunch;
         public string debugPort;
+        public string inputStamp;
+        public double inputIdleMs;
     }
     public sealed class Snapshot {
         public App[] apps;
@@ -194,7 +236,9 @@ namespace CodexUsageBadge.Startup {
                 if(args[i]=="--remote-debugging-port") port=i+1<args.Length?args[i+1]:"";
             }
             IntPtr window=p.MainWindowHandle;
+            string stamp;double idle;activity.ReadProcess(p.Id,out stamp,out idle);
             return new App {pid=p.Id,key=Identity(p),launchedAt=(p.StartTime.ToUniversalTime()-new DateTime(1970,1,1)).TotalMilliseconds,
+                inputStamp=stamp,inputIdleMs=idle,
                 argumentsKnown=args!=null,plainLaunch=args!=null&&args.Length==1,debugPort=port,
                 finishedLaunching=window!=IntPtr.Zero&&IsWindowVisible(window)&&IsWindowEnabled(window)};
         }
@@ -211,9 +255,9 @@ namespace CodexUsageBadge.Startup {
             return new Snapshot {apps=found.ToArray(),frontmostPid=foreground,inputStamp=stamp,inputIdleMs=idle};
         }
         static bool CanQuit(Snapshot s,int pid,string key,string stamp) {
-            if(Stopped()||s.apps.Length!=1||s.frontmostPid!=pid||s.inputStamp!=stamp||stamp=="unknown") return false;
+            if(Stopped()||s.apps.Length!=1||stamp=="unknown") return false;
             var a=s.apps[0]; double age=Now-a.launchedAt;
-            return a.pid==pid&&a.key==key&&a.argumentsKnown&&a.plainLaunch&&a.debugPort==null&&a.finishedLaunching&&age>=0&&age<=8000&&s.inputIdleMs>=age;
+            return a.pid==pid&&a.key==key&&a.inputStamp==stamp&&a.argumentsKnown&&a.plainLaunch&&a.debugPort==null&&a.finishedLaunching&&age>=0&&age<=8000&&a.inputIdleMs>=age;
         }
         public static object Quit(int pid,string key,string stamp) {
             if(!CanQuit(TakeSnapshot(),pid,key,stamp)) return new {accepted=false,reason="guard"};
@@ -223,7 +267,7 @@ namespace CodexUsageBadge.Startup {
                 // Failure leaves the original app running rather than attempting an unsupported relaunch.
                 applicationId=ReadApplicationId(p);
                 return ShutdownProcess(p,()=>CanQuit(TakeSnapshot(),pid,key,stamp),()=>{
-                    string current;double idle;activity.Read(out current,out idle);
+                    string current;double idle;activity.ReadProcess(pid,out current,out idle);
                     return Stopped()||current!=stamp;
                 });
             }
@@ -261,9 +305,9 @@ namespace CodexUsageBadge.Startup {
                 }
             } finally { RmEndSession(handle); }
         }
-        public static object Launch(string stamp,int foreground) {
+        public static object Launch(string stamp,int foreground,bool restore=false) {
             var s=TakeSnapshot();
-            if(Stopped()||s.apps.Length!=0||s.inputStamp!=stamp||stamp=="unknown"||s.frontmostPid!=foreground) return new {launched=false};
+            if(Stopped()||s.apps.Length!=0||(!restore&&(s.inputStamp!=stamp||stamp=="unknown"||s.frontmostPid!=foreground))) return new {launched=false};
             using(var p=StartApplication()) {
                 p.Refresh();
                 if(p.HasExited) throw new InvalidOperationException("Activated desktop process exited: "+p.ExitCode);
@@ -311,7 +355,7 @@ namespace CodexUsageBadge.Startup {
             // Reveal only the verified replacement. Input/focus changes cancel activation,
             // not visibility: otherwise a successful restart can strand a hidden client.
             var deadline=Stopwatch.StartNew();
-            bool mayActivate=true;
+            bool mayActivate=foreground>=0;
             while(deadline.ElapsedMilliseconds<15000) {
                 var s=TakeSnapshot();
                 if(Stopped()) return new {shown=false,activated=false,reason="stopped"};

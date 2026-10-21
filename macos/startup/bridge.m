@@ -46,22 +46,87 @@ static NSDictionary *argumentsState(pid_t pid) {
         if ([s hasPrefix:@"--remote-debugging-port="]) port = [s substringFromIndex:24];
         if ([s isEqualToString:@"--remote-debugging-port"]) port = i+1<args.count ? args[i+1] : @"";
     }
-    return @{@"known":@YES, @"port":port};
+    return @{@"known":@YES, @"port":port,@"plain":@(args.count==1)};
 }
 static NSString *identity(NSRunningApplication *a) {
     return [NSString stringWithFormat:@"%d:%.0f", a.processIdentifier, a.launchDate.timeIntervalSince1970*1000];
 }
+// A persistent helper associates counter changes with a stable foreground client.
+// No event tap, Accessibility permission, key contents or window titles are used.
+static BOOL monitoringClient=NO;
+static NSMutableDictionary *clientInputs;
+static NSString *previousClientKey;
+static uint32_t previousCounters[5];
+static BOOL countersReady=NO;
+static double previousSampleAt=0;
+static NSString *keyForEvent(CGEventType type,NSString *front,NSString *previous,NSString *pointer) {
+    return type==kCGEventKeyDown?([front isEqualToString:previous]?front:nil):pointer;
+}
+static void recordClientInput(NSString *key,double now,double eventAt) {
+    if(!key)return;
+    NSMutableDictionary *entry=clientInputs[key];
+    if(!entry) {entry=[@{@"firstSeen":@(now),@"lastInput":@0,@"sequence":@0} mutableCopy];clientInputs[key]=entry;}
+    entry[@"lastInput"]=@(eventAt);entry[@"sequence"]=@([entry[@"sequence"] unsignedLongLongValue]+1);
+}
+static NSString *pointerClientKey(NSString *path) {
+    CGEventRef event=CGEventCreate(NULL);if(!event)return nil;
+    CGPoint point=CGEventGetLocation(event);CFRelease(event);
+    NSArray *windows=CFBridgingRelease(CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly|kCGWindowListExcludeDesktopElements,kCGNullWindowID));
+    for(NSDictionary *window in windows) {
+        if([window[(__bridge id)kCGWindowLayer] intValue]!=0)continue;
+        CGRect bounds;
+        if(!CGRectMakeWithDictionaryRepresentation((__bridge CFDictionaryRef)window[(__bridge id)kCGWindowBounds],&bounds)||!CGRectContainsPoint(bounds,point))continue;
+        NSRunningApplication *owner=[NSRunningApplication runningApplicationWithProcessIdentifier:[window[(__bridge id)kCGWindowOwnerPID] intValue]];
+        return matches(owner,path)&&owner.launchDate?identity(owner):nil;
+    }
+    return nil;
+}
+static void sampleClientActivity(NSString *path) {
+    if (!monitoringClient) return;
+    double now=NSDate.date.timeIntervalSince1970*1000;
+    NSRunningApplication *front=NSWorkspace.sharedWorkspace.frontmostApplication;
+    NSString *key=matches(front,path)&&front.launchDate?identity(front):nil;
+    NSString *pointer=nil;BOOL pointerRead=NO;
+    NSArray *types=eventTypes();
+    for(NSUInteger i=0;i<types.count;i++) {
+        CGEventType type=[types[i] unsignedIntValue];
+        uint32_t count=CGEventSourceCounterForEventType(kCGEventSourceStateCombinedSessionState,type);
+        double eventAt=now-CGEventSourceSecondsSinceLastEventType(kCGEventSourceStateCombinedSessionState,type)*1000;
+        if(countersReady&&count!=previousCounters[i]&&eventAt>previousSampleAt) {
+            if(type!=kCGEventKeyDown&&!pointerRead) {pointer=pointerClientKey(path);pointerRead=YES;}
+            recordClientInput(keyForEvent(type,key,previousClientKey,pointer),now,eventAt);
+        }
+        previousCounters[i]=count;
+    }
+    previousClientKey=key;previousSampleAt=now;countersReady=YES;
+    if(clientInputs.count>256) {
+        NSMutableDictionary *current=key?clientInputs[key]:nil;
+        [clientInputs removeAllObjects];if(current)clientInputs[key]=current;
+    }
+}
+static NSDictionary *clientActivity(NSRunningApplication *a) {
+    if (!monitoringClient) return @{@"inputStamp":@"unknown",@"inputIdleMs":@0};
+    double now=NSDate.date.timeIntervalSince1970*1000;
+    NSString *key=identity(a);NSMutableDictionary *entry=clientInputs[key];
+    if (!entry) { entry=[@{@"firstSeen":@(now),@"lastInput":@0,@"sequence":@0} mutableCopy];clientInputs[key]=entry; }
+    if(now-[entry[@"firstSeen"] doubleValue]<250) return @{@"inputStamp":@"unknown",@"inputIdleMs":@0};
+    return @{@"inputStamp":[entry[@"sequence"] stringValue],@"inputIdleMs":@([entry[@"lastInput"] doubleValue]>0?now-[entry[@"lastInput"] doubleValue]:1e15)};
+}
 static NSDictionary *snapshot(NSString *path) {
+    sampleClientActivity(path);
     NSMutableArray *apps = [NSMutableArray array];
     NSWorkspace *w = NSWorkspace.sharedWorkspace;
     for (NSRunningApplication *a in w.runningApplications) {
         if (!matches(a,path) || !a.launchDate) continue;
         NSDictionary *args = argumentsState(a.processIdentifier);
-        [apps addObject:@{@"pid":@(a.processIdentifier), @"key":identity(a), @"launchedAt":@(a.launchDate.timeIntervalSince1970*1000), @"finishedLaunching":@(a.finishedLaunching), @"argumentsKnown":args[@"known"], @"debugPort":args[@"port"] ?: NSNull.null}];
+        NSDictionary *activity=clientActivity(a);
+        [apps addObject:@{@"pid":@(a.processIdentifier), @"key":identity(a), @"launchedAt":@(a.launchDate.timeIntervalSince1970*1000), @"finishedLaunching":@(a.finishedLaunching), @"argumentsKnown":args[@"known"],@"plainLaunch":args[@"plain"]?:@NO, @"debugPort":args[@"port"] ?: NSNull.null,@"inputStamp":activity[@"inputStamp"],@"inputIdleMs":activity[@"inputIdleMs"]}];
     }
     return @{@"apps":apps, @"frontmostPid":@(w.frontmostApplication.processIdentifier), @"inputStamp":inputStamp(), @"inputIdleMs":@(inputIdleMs())};
 }
+static id requestId;
 static void output(id object) {
+    if(requestId) object=@{@"id":requestId,@"result":object};
     NSData *d = [NSJSONSerialization dataWithJSONObject:object options:0 error:nil];
     if (!d) exit(2);
     fwrite(d.bytes,1,d.length,stdout); fputc('\n',stdout); fflush(stdout);
@@ -101,7 +166,7 @@ static NSDictionary *restoreDock(NSString *app, NSString *oldLauncher) {
     }
     return @{@"ok":@YES,@"changed":changed?@YES:@NO};
 }
-int main(int argc, const char *argv[]) { @autoreleasepool {
+static int handleAction(int argc, const char *argv[]) { @autoreleasepool {
     if (argc < 3) return 2;
     NSString *action=@(argv[1]), *path=canonical(@(argv[2]));
     if ([action isEqualToString:@"restore-dock"] && argc==4) { output(restoreDock(path,canonical(@(argv[3])))); return 0; }
@@ -136,12 +201,15 @@ int main(int argc, const char *argv[]) { @autoreleasepool {
         double age = a.launchDate ? (NSDate.date.timeIntervalSince1970-a.launchDate.timeIntervalSince1970)*1000 : INFINITY;
         NSDictionary *args = a ? argumentsState(a.processIdentifier) : @{};
         // Recheck all guards at the native action boundary. No forceTerminate, kill or app activation.
-        BOOL safe = matches(a,path) && a.finishedLaunching && [identity(a) isEqualToString:@(argv[4])] && age>=0 && age<=8000 && inputIdleMs()>=age && [inputStamp() isEqualToString:@(argv[5])] && NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier==a.processIdentifier && [args[@"known"] boolValue] && args[@"port"]==NSNull.null;
+        sampleClientActivity(path);
+        NSDictionary *activity=a?clientActivity(a):@{};
+        BOOL safe = matches(a,path) && a.finishedLaunching && [identity(a) isEqualToString:@(argv[4])] && age>=0 && age<=8000 && [activity[@"inputIdleMs"] doubleValue]>=age && ![activity[@"inputStamp"] isEqual:@"unknown"] && [activity[@"inputStamp"] isEqualToString:@(argv[5])] && [args[@"known"] boolValue] && [args[@"plain"] boolValue] && args[@"port"]==NSNull.null;
         output(@{@"accepted":(safe && [a terminate]) ? @YES : @NO}); return 0;
     }
-    if ([action isEqualToString:@"launch"] && argc==5) {
+    if ([action isEqualToString:@"launch"] && (argc==5||argc==6)) {
         NSDictionary *current=snapshot(path);
-        if ([current[@"apps"] count] || ![current[@"inputStamp"] isEqualToString:@(argv[3])] || [current[@"frontmostPid"] intValue]!=atoi(argv[4])) { output(@{@"launched":@NO}); return 0; }
+        BOOL restore=argc==6 && strcmp(argv[5],"restore")==0;
+        if ([current[@"apps"] count] || (!restore && (![current[@"inputStamp"] isEqualToString:@(argv[3])] || [current[@"frontmostPid"] intValue]!=atoi(argv[4])))) { output(@{@"launched":@NO}); return 0; }
         NSWorkspaceOpenConfiguration *config=NSWorkspaceOpenConfiguration.configuration;
         // Do not launch hidden: a later input/focus change must not strand the app.
         config.activates=NO; config.hides=NO; config.addsToRecentItems=NO;
@@ -156,7 +224,7 @@ int main(int argc, const char *argv[]) { @autoreleasepool {
     }
     if ([action isEqualToString:@"show"] && argc==7) {
         NSDate *deadline=[NSDate dateWithTimeIntervalSinceNow:15];
-        BOOL mayActivate=YES;
+        BOOL mayActivate=atoi(argv[6])>=0;
         while (deadline.timeIntervalSinceNow>0) {
         NSRunningApplication *a=[NSRunningApplication runningApplicationWithProcessIdentifier:atoi(argv[3])];
         NSDictionary *args = a ? argumentsState(a.processIdentifier) : @{};
@@ -177,4 +245,38 @@ int main(int argc, const char *argv[]) { @autoreleasepool {
         output(@{@"shown":@NO,@"activated":@NO,@"reason":@"window-timeout"}); return 0;
     }
     return 2;
+} }
+
+int main(int argc,const char *argv[]) { @autoreleasepool {
+    if(argc<3)return 2;
+    if(strcmp(argv[1],"serve")!=0)return handleAction(argc,argv);
+    NSString *path=canonical(@(argv[2]));
+    NSApplication *application=NSApplication.sharedApplication;
+    [application setActivationPolicy:NSApplicationActivationPolicyProhibited];
+    monitoringClient=YES;clientInputs=[NSMutableDictionary dictionary];sampleClientActivity(path);
+    [NSTimer scheduledTimerWithTimeInterval:0.05 repeats:YES block:^(NSTimer *timer){(void)timer;sampleClientActivity(path);}];
+    // All native actions and samples run on the main thread; stdin waits off-thread.
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY,0),^{
+        char *line=NULL;size_t size=0;
+        while(getline(&line,&size,stdin)>0) {
+            NSData *data=[[@(line) stringByTrimmingCharactersInSet:NSCharacterSet.newlineCharacterSet] dataUsingEncoding:NSUTF8StringEncoding];
+            NSDictionary *request=[NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+            dispatch_async(dispatch_get_main_queue(),^{ @autoreleasepool {
+                requestId=request[@"id"];
+                NSArray *args=request[@"args"];
+                if(!requestId||![args isKindOfClass:NSArray.class]||args.count<2||![canonical(args[1]) isEqualToString:path]) {
+                    output(@{@"error":@"Invalid native request"});requestId=nil;return;
+                }
+                NSMutableArray *values=[NSMutableArray arrayWithObject:@"bridge"];
+                [values addObjectsFromArray:args];
+                const char **nativeArgs=calloc(values.count,sizeof(char *));
+                for(NSUInteger i=0;i<values.count;i++)nativeArgs[i]=[values[i] UTF8String];
+                @try { int result=handleAction((int)values.count,nativeArgs);if(result)output(@{@"error":@"Native action failed"}); }
+                @catch(NSException *exception) { (void)exception;output(@{@"error":@"Native action exception"}); }
+                free(nativeArgs);requestId=nil;
+            }});
+        }
+        free(line);dispatch_async(dispatch_get_main_queue(),^{exit(0);});
+    });
+    [application run];return 0;
 } }

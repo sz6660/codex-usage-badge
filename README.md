@@ -1,4 +1,4 @@
-> 本 fork 修复版：Windows 0.10.2 / macOS 0.9.5。源码来自 [原项目](https://github.com/jaykinhoo9/codex-usage-badge)，修改说明见 [更新记录](CHANGELOG.md)。新安装包由本仓库 Actions 构建，未发布 Release 前请从 Actions 下载构建产物；下方原版下载链接保留作参考。自动更新只跟随 `sz6660/codex-usage-badge` 的已发布版本。
+> 本 fork 修复版：Windows 0.10.3 / macOS 0.9.6。源码来自 [原项目](https://github.com/jaykinhoo9/codex-usage-badge)，修改说明见 [更新记录](CHANGELOG.md)。新安装包由本仓库 Actions 构建，未发布 Release 前请从 Actions 下载构建产物；下方原版下载链接保留作参考。自动更新只跟随 `sz6660/codex-usage-badge` 的已发布版本。
 
 # Codex Usage Badge · Codex 用量条
 

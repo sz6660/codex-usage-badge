@@ -5,7 +5,7 @@ async function check(modulePath) {
   const {StartupController}=require(modulePath);
   let now=100000,apps=[],stamp='1',front=20,shows=0,quits=0,launches=0;
   const records=[];
-  const app=(key,pid,port=null)=>({key,pid,launchedAt:now-100,finishedLaunching:true,argumentsKnown:true,plainLaunch:true,debugPort:port});
+  const app=(key,pid,port=null)=>({key,pid,launchedAt:now-100,finishedLaunching:true,argumentsKnown:true,plainLaunch:true,debugPort:port,inputStamp:'client:0',inputIdleMs:10000});
   let shown=true;
   const adapter={
     snapshot:async()=>({apps,frontmostPid:front,inputStamp:stamp,inputIdleMs:10000}),

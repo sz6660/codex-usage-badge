@@ -76,10 +76,25 @@ public class StartupFixture : Form {
     Start-Fixture
     $snapshot=[CodexUsageBadge.Startup.Native]::TakeSnapshot()
     Assert ($snapshot.apps.Count -eq 1 -and $snapshot.apps[0].plainLaunch) 'Plain native launch detection'
+    $activityField=[CodexUsageBadge.Startup.Native].GetField('activity',[Reflection.BindingFlags]'NonPublic,Static')
+    $activity=$activityField.GetValue($null)
+    $recordInput=$activity.GetType().GetMethod('Record',[Reflection.BindingFlags]'NonPublic,Instance')
+    $canQuit=[CodexUsageBadge.Startup.Native].GetMethod('CanQuit',[Reflection.BindingFlags]'NonPublic,Static')
+    $clientStamp=$snapshot.apps[0].inputStamp
+    # Exercise the native action-boundary guard without closing or activating any real app.
+    $recordInput.Invoke($activity,@([int]$PID))
+    $outside=[CodexUsageBadge.Startup.Native]::TakeSnapshot()
+    $outside.apps[0].finishedLaunching=$true
+    Assert ($outside.apps[0].inputStamp -eq $clientStamp) 'Outside input must not change client activity'
+    Assert ($canQuit.Invoke($null,@($outside,[int]$child.Id,[string]$outside.apps[0].key,[string]$clientStamp))) 'Outside input/background focus must not block guarded client loading'
+    $recordInput.Invoke($activity,@([int]$child.Id))
+    $inside=[CodexUsageBadge.Startup.Native]::TakeSnapshot()
+    $inside.apps[0].finishedLaunching=$true
+    Assert (!$canQuit.Invoke($null,@($inside,[int]$child.Id,[string]$inside.apps[0].key,[string]$clientStamp))) 'Client input must invalidate the scoped quit receipt'
     $identityMethod=[CodexUsageBadge.Startup.Native].GetMethod('ReadApplicationId',[Reflection.BindingFlags]'NonPublic,Static')
     Assert ($null -eq $identityMethod.Invoke($null,@($child))) 'Unpackaged fixture must use the desktop launch path'
     $reply=[CodexUsageBadge.Startup.Native]::Quit($child.Id,$snapshot.apps[0].key,$snapshot.inputStamp)
-    Assert (!$reply.accepted -and !$child.HasExited) 'Background/hidden app guard'
+    Assert (!$reply.accepted -and !$child.HasExited) 'Global input stamp must not authorize a client-scoped quit'
     $method=[CodexUsageBadge.Startup.Native].GetMethod('ShutdownProcess',[Reflection.BindingFlags]'NonPublic,Static')
     $reply=$method.Invoke($null,@($child,[Func[bool]]{ $true },[Func[bool]]{ $false }))
     Assert ($reply.accepted -and $child.WaitForExit(5000)) ('Non-forced shutdown failed: '+$reply.reason)
@@ -143,4 +158,3 @@ public class StartupFixture : Form {
     }
 }
 if($testFailure) { throw $testFailure }
-

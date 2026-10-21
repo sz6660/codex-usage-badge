@@ -68,7 +68,7 @@ async function main() {
   const adapter={
     snapshot:()=>bridge.call('snapshot'),portInUse,
     quit:(app,stamp)=>bridge.call('quit',{pid:app.pid,key:app.key,stamp}),
-    launch:async(stamp,foreground)=>await portInUse()?{launched:false}:bridge.call('launch',{stamp,foreground}),
+    launch:async(stamp,foreground)=>await portInUse()?{launched:false}:bridge.call('launch',{stamp,foreground,restore:true}),
     show:(app,stamp,foreground)=>bridge.call('show',{pid:app.pid,key:app.key,stamp,foreground}),
     async record(event,details={}) {
       const {message,reason,errorCode,processCount,rebootReason,shown,activated,ageMs,inputIdleMs,frontmostPid,...previous}=state;
