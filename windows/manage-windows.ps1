@@ -4,7 +4,7 @@ param(
     [switch]$DisableAutoUpdate, [switch]$AutomaticUpdate, [switch]$ForceUpdate
 )
 $ErrorActionPreference = 'Stop'
-$script:Version = '0.10.4'
+$script:Version = '0.10.5'
 $script:Owner = 'local.codexusagebadge.windows'
 . (Join-Path $PSScriptRoot 'environment.ps1')
 
@@ -431,7 +431,7 @@ function Install-Badge($Overrides) {
             Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination (Join-Path $stage $name)
         }
         [void][IO.Directory]::CreateDirectory((Join-Path $stage 'startup'))
-        foreach ($name in @('controller.cjs','windows.cjs','windows-bridge.ps1','windows-native.cs')) {
+        foreach ($name in @('controller.cjs','windows.cjs','windows-bridge.ps1','windows-native.cs','lost-launch.cjs','activation-watch.ps1')) {
             Copy-Item -LiteralPath (Join-Path $PSScriptRoot ('startup/' + $name)) -Destination (Join-Path $stage ('startup/' + $name))
         }
         Write-Json (Join-Path $stage 'config.json') $config
@@ -465,7 +465,7 @@ function Install-Badge($Overrides) {
         if (Test-Path -LiteralPath $stage) { Assert-OwnedDirectory $stage; Remove-Item -LiteralPath $stage -Recurse -Force }
     }
     Write-Host '安装成功。下次完全退出后，直接使用原来的 Codex 图标打开即可自动加载。'
-    Write-Host '环境变量已自动配置。请自行完全退出 Codex，再从原图标打开；插件不会自动关闭或重开客户端。'
+    Write-Host '环境变量已自动配置。请自行完全退出 Codex，再从原图标打开；插件不会关闭或重启运行中的客户端；仅恢复确认丢失的原入口启动请求。'
     if ($oldMoved) { Write-Host "旧版本备份：$backup" }
 }
 function Get-DebugPages {
@@ -508,6 +508,8 @@ function Show-Status {
     if ($update) { Write-Host ('更新状态：' + ($update | ConvertTo-Json -Compress)) }
     $state = Read-Json $script:StatePath
     if ($state) { Write-Host ($state | ConvertTo-Json -Compress) }
+    $recovery = Read-Json (Join-Path $script:InstallRoot 'startup/recovery.json')
+    if ($recovery) { Write-Host ('启动请求恢复：' + ($recovery | ConvertTo-Json -Compress)) }
     $receipt = Read-Json (Join-Path $script:InstallRoot 'startup/state.json')
     if ($receipt) { Write-Host ('自动加载：' + ($receipt | ConvertTo-Json -Compress)) }
     $config = Read-Json $script:ConfigPath

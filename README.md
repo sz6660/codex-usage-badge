@@ -15,14 +15,14 @@
 
 ## 安装与下载
 
-本 fork 当前版本为 Windows / macOS **0.10.4**，来自 [原项目](https://github.com/jaykinhoo9/codex-usage-badge)。从 [本仓库 Actions](https://github.com/sz6660/codex-usage-badge/actions) 下载对应平台的构建产物，完整解压后操作。不自动发布 Release。
+本 fork 当前版本为 Windows **0.10.5** / macOS **0.10.4**，来自 [原项目](https://github.com/jaykinhoo9/codex-usage-badge)。从 [本仓库 Actions](https://github.com/sz6660/codex-usage-badge/actions) 下载对应平台的构建产物，完整解压后操作。不自动发布 Release。
 
 | 系统 | 安装／升级 | 查看状态 | 卸载 | 说明 |
 | --- | --- | --- | --- | --- |
 | Windows 10 / 11 | `Install.cmd` | `Status.cmd` | `Uninstall.cmd` | [Windows 手册](docs/windows.md) |
 | macOS Apple Silicon / Intel | `安装.command` | `查看状态.command` | `卸载.command` | [macOS 手册](docs/macos.md) |
 
-安装命令同时处理插件和环境变量；重复安装保留原环境备份，卸载自动恢复。安装后由用户完全退出 Codex，再从原来的图标打开。插件不启动或重开 Codex，不依赖点击是否发生在其他软件中，也没有加载冷却期。
+安装命令同时处理插件和环境变量；重复安装保留原环境备份，卸载自动恢复。安装后由用户完全退出 Codex，再从原来的图标打开。插件不关闭或重启运行中的 Codex；Windows 仅在系统记录原入口请求丢失且旧容器完全退出后，补交一次启动请求。不依赖点击是否发生在其他软件中，也没有加载冷却期。
 
 此方式依赖内部 `BUILD_FLAVOR=dev` 开关，还会影响客户端开发工具和内置更新判断。配置目录固定为已有目录以沿用登录状态。Windows 已在真实客户端验证；macOS 原入口在真实账号环境的加载仍需实际 Mac 验收，详见各平台手册。客户端应用包和原快捷方式不改动。
 

@@ -38,7 +38,9 @@ jobs:
       - name: Native Windows install and shutdown
         if: runner.os == 'Windows'
         shell: powershell
-        run: ./tests/windows-native.ps1
+        run: |
+          ./tests/activation-watch.ps1
+          ./tests/windows-native.ps1
       - name: Windows update archive validation
         shell: pwsh
         run: ./tests/windows-update.ps1

@@ -65,9 +65,42 @@ async function main(){
   const receipt=path.join(__dirname,'state.json');
   const state={event:'watching',mode:'environment-connection-only',automaticRestart:false,pid:process.pid,updatedAt:Date.now()};
   fs.writeFileSync(receipt,JSON.stringify(state,null,2)+'\n');
-  console.log(new Date().toISOString(),'environment-connection-only: no client launch or restart');
-  const timer=setInterval(()=>{if(fs.existsSync(stopFile)){clearInterval(timer);process.exit(0);}},200);
-  const stop=()=>{clearInterval(timer);process.exit(0);};
+  console.log(new Date().toISOString(),'environment-connection-only: no client quit/restart; recover lost original-entry activation only');
+  let observer=null,recovery=null;
+  const activationScript=path.join(__dirname,'activation-watch.ps1');
+  if(process.env.CODEX_BADGE_APP&&fs.existsSync(activationScript)){
+    const {LostLaunchRecovery}=require('./lost-launch.cjs');
+    const shell=path.join(process.env.SystemRoot,'System32/WindowsPowerShell/v1.0/powershell.exe');
+    const args=['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',activationScript,
+      '-AppExe',process.env.CODEX_BADGE_APP,'-StopFile',stopFile,'-ParentId',String(process.pid)];
+    const record=(event,details={})=>{
+      writeReceipt(path.join(__dirname,'recovery.json'),{event,...details,updatedAt:Date.now(),automaticRestart:false});
+      console.log(new Date().toISOString(),event);
+    };
+    recovery=new LostLaunchRecovery({record,launch:()=>new Promise(resolve=>{
+      if(fs.existsSync(stopFile))return resolve({launched:false,reason:'watcher-stopped'});
+      const child=spawn(shell,[...args,'-Recover'],{windowsHide:true,stdio:['ignore','pipe','ignore']});
+      let output='',done=false;
+      const timer=setTimeout(()=>{child.kill();finish({launched:false,reason:'activation-timeout'});},10000);
+      const finish=result=>{if(done)return;done=true;clearTimeout(timer);resolve(result);};
+      child.stdout.on('data',b=>{if(output.length<8192)output+=b;});
+      child.once('error',()=>finish({launched:false,reason:'activation-helper-unavailable'}));
+      child.once('exit',()=>{try{finish(JSON.parse(output));}catch{finish({launched:false,reason:'activation-helper-failed'});}});
+    })});
+    observer=spawn(shell,args,{windowsHide:true,stdio:['ignore','pipe','ignore']});
+    const lines=readline.createInterface({input:observer.stdout});
+    lines.on('line',line=>{
+      try{
+        const event=JSON.parse(line);
+        if(event.kind==='snapshot')recovery.tick(event).catch(()=>record('recovery-observation-failed'));
+        else if(event.kind==='unavailable')record('recovery-unavailable');
+      }catch{record('recovery-observation-failed');}
+    });
+    observer.once('error',()=>record('recovery-unavailable'));
+    observer.once('exit',()=>{lines.close();record('recovery-observer-stopped');});
+  }
+  const stop=()=>{recovery?.stop();observer?.kill();clearInterval(timer);process.exit(0);};
+  const timer=setInterval(()=>{if(fs.existsSync(stopFile))stop();},200);
   process.once('SIGTERM',stop);process.once('SIGINT',stop);
 }
 module.exports={NativeBridge,portInUse,readReceipt,writeReceipt};

@@ -5,8 +5,8 @@ function Expand-ValidatedUpdate([string]$File,[string]$Target,[string]$ReleaseVe
     if($ReleaseVersion -notmatch '^\d+\.\d+\.\d+$' -or $ExpectedDigest -notmatch '^[a-f0-9]{64}$') { throw 'Invalid update metadata' }
     if((Get-FileHash -LiteralPath $File -Algorithm SHA256).Hash.ToLowerInvariant() -ne $ExpectedDigest) { throw 'Update archive changed before validation' }
     $prefix='CodexUsageBadge-Windows-'+$ReleaseVersion+'/'
-    $allowed=@('agent.cjs','manage-windows.ps1','bridge.cjs','update.cjs','update-windows.ps1','environment.ps1','Install.cmd','Status.cmd','Uninstall.cmd','README-Windows.md','README.md','CHANGELOG.md','LICENSE','SECURITY.md','docs/windows.md','docs/macos.md','docs/development.md','assets/cover.png','startup/controller.cjs','startup/windows.cjs','startup/windows-bridge.ps1','startup/windows-native.cs','SHA256SUMS.txt')
-    $required=@('agent.cjs','manage-windows.ps1','bridge.cjs','update.cjs','update-windows.ps1','environment.ps1','Install.cmd','Status.cmd','Uninstall.cmd','README-Windows.md','startup/controller.cjs','startup/windows.cjs','startup/windows-bridge.ps1','startup/windows-native.cs','SHA256SUMS.txt')
+    $allowed=@('agent.cjs','manage-windows.ps1','bridge.cjs','update.cjs','update-windows.ps1','environment.ps1','Install.cmd','Status.cmd','Uninstall.cmd','README-Windows.md','README.md','CHANGELOG.md','LICENSE','SECURITY.md','docs/windows.md','docs/macos.md','docs/development.md','assets/cover.png','startup/controller.cjs','startup/windows.cjs','startup/windows-bridge.ps1','startup/windows-native.cs','startup/lost-launch.cjs','startup/activation-watch.ps1','SHA256SUMS.txt')
+    $required=@('agent.cjs','manage-windows.ps1','bridge.cjs','update.cjs','update-windows.ps1','environment.ps1','Install.cmd','Status.cmd','Uninstall.cmd','README-Windows.md','startup/controller.cjs','startup/windows.cjs','startup/windows-bridge.ps1','startup/windows-native.cs','startup/lost-launch.cjs','startup/activation-watch.ps1','SHA256SUMS.txt')
     $zip=[IO.Compression.ZipFile]::OpenRead($File)
     try {
         $files=@{};$total=0

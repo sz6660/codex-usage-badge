@@ -43,7 +43,7 @@ for target_platform in platforms:
             modes[filename] = 0o755
     else:
         mapping.update({'manage-windows.ps1':'windows/manage-windows.ps1','environment.ps1':'windows/environment.ps1','bridge.cjs':'windows/bridge.cjs','update.cjs':'windows/update.cjs','update-windows.ps1':'windows/update-windows.ps1','README-Windows.md':'docs/windows.md'})
-        for filename in ['controller.cjs','windows.cjs','windows-bridge.ps1','windows-native.cs']:
+        for filename in ['controller.cjs','windows.cjs','windows-bridge.ps1','windows-native.cs','lost-launch.cjs','activation-watch.ps1']:
             mapping['startup/'+filename] = 'startup/'+filename
         for action in ['Install','Status','Uninstall']:
             text = f'@echo off\nsetlocal\n"%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0manage-windows.ps1" -Action {action}\nset "BADGE_EXIT=%ERRORLEVEL%"\nif not "%BADGE_EXIT%"=="0" echo Operation failed. See the message above.\npause\nexit /b %BADGE_EXIT%\n'
