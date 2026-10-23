@@ -1,4 +1,4 @@
-# macOS 安装说明（0.10.4）
+# macOS 安装说明（0.10.5）
 
 将 ZIP 完整解压，先确保原版 Codex 已经运行过一次。Apple Silicon 和 Intel 使用同一安装包。
 
