@@ -1,49 +1,50 @@
-# 开发与验证
+# 开发与构建
 
-## 发布 macOS 自动更新
+## 版本规则
 
-更新 `package.json`、`package-lock.json`、`src/agent-main.js` 和 `manage.cjs` 中的 macOS 版本号后，运行 `python3 scripts/build_release.py --platform macOS`。构建器生成包含 `update.json` 和校验清单的安装包。
+当前版本与验收状态见 [版本记录](../CHANGELOG.md)。Windows 0.10.5 已封版，后续运行代码修复必须递增 `windowsVersion` 和 Windows 管理脚本版本，不覆盖已交付版本。文档可以继续澄清当前行为。
 
-通过测试与隐私检查后，以 `v版本号-macos` 标签发布 GitHub Release，上传 `CodexUsageBadge-macOS-版本号.zip` 和外部 `SHA256SUMS.txt`。只有已发布、安装包上传完整且具有 GitHub SHA-256 digest 的 Release 会被发现。草稿、仅推送源码、Windows 包及不高于本机版本的包不会触发升级。当前 macOS 渠道默认包含预发布版本。
+macOS 版本由 `package.json` 的 `version`、`src/agent-main.js`、`manage.cjs` 及锁文件的根版本保持一致。Windows 安装包使用 `windowsVersion`，构建器替换包内后台版本标识。依赖锁文件只随元数据或依赖变更更新。
 
-`updater/core.cjs` 负责筛选版本、下载校验、ZIP 校验和缓存锁；`updater/worker.cjs` 调用现有安装器。安装器在独立操作锁内迁移程序，保持正在运行的更新器存活，并在后台启动失败时恢复原文件与服务。更新包在临时缓存目录验证，安装结束后清理。
+## 目录结构
 
-## 本地开发
+| 目录／文件 | 用途 |
+| --- | --- |
+| `src/`、`build.py` | 界面、额度和本地统计；生成 `agent.cjs` |
+| `windows/` | Windows 安装、环境备份、后台管理和界面诊断 |
+| `startup/windows.cjs` | Windows 连接模式就绪与插件停止处理，启用丢失请求观察 |
+| `startup/lost-launch.cjs` | 仅恢复有系统事件证据的丢失启动请求 |
+| `startup/activation-watch.ps1` | 读取目标进程与容器事件，检查后调用原系统入口 |
+| `manage.cjs`、`macos/` | macOS 安装、launchd 任务、会话环境与连接模式助手 |
+| `updater/` | 保留安装锁和兼容校验组件；后台更新入口已停用 |
+| `tests/` | 临时目录、模拟接口、独立 Chromium 和原生测试应用 |
+| `scripts/build_release.py` | 按平台白名单打包、校验和及脚本权限 |
+| `scripts/audit_release.py` | 检查源码及安装包中不应分发的数据 |
 
-开发环境：Node.js 24+、Python 3.10+。macOS 原生助手由 Xcode Command Line Tools 编译为 arm64 / x86_64 通用程序；普通用户使用安装包中的成品，无需编译。
+旧重开控制器及底层适配器保留用于兼容性回归测试，不是当前安装模式的自动启动路径。不要将其重新接入运行中的启动助手。仓库不包含开发阶段的原入口实验工作流或研究脚本。
+
+## 构建与测试
+
+开发依赖：Node.js 24+、Python 3.10+。macOS 原生助手需要 Xcode Command Line Tools，构建为 arm64 / x86_64 通用程序。
 
 ```bash
-npm ci
+npm ci --ignore-scripts
 npx playwright install chromium --only-shell
-python3 scripts/build_release.py
+python scripts/build_release.py
 npm test
-npm run test:privacy
+python scripts/audit_release.py
 ```
 
-macOS 额外运行原生测试：
+单独构建 Windows：`python scripts/build_release.py --platform Windows`。单独构建 macOS：在 Mac 上执行 `python scripts/build_release.py --platform macOS`。输出到 `dist/`，包含 ZIP 和校验清单，每个平台只有三个用户操作入口。
 
-```bash
-node tests/startup-native.cjs .devtools/macos-startup-bridge
-```
+PowerShell 的环境、安装与恢复测试分别使用 `tests/environment.ps1`、`tests/windows.ps1` 和 `tests/activation-watch.ps1`。Windows 原生安装测试为 `tests/windows-native.ps1`。测试中使用临时用户目录、独立端口和模拟环境 API，不修改真实环境变量、不连接开发机器的 Codex。
 
-PowerShell 测试：`pwsh -File tests/windows.ps1`。Windows CI 还会运行 `tests/windows-native.ps1`，验证安装、快捷方式、后台停止和卸载。
+`main`、`fix/**` 推送及手动运行会触发双平台 Actions，测试及审计通过后上传安装包，保留 30 天，不创建 Release。macOS 作业同时生成两个平台的包；Windows 作业单独验证 Windows 包。
 
-Windows 启动适配器测试：`powershell -NoProfile -ExecutionPolicy Bypass -File tests/windows-startup-native.ps1`。它仅操作临时隐藏应用，检查进程身份、Raw Input 活动分类、正常退出/拒绝及重开。`startup/` 为 Windows 适配器；macOS 保持原有 `macos/startup/` 实现。
+## 运行边界
 
-只构建 Windows：`python scripts/build_release.py --platform Windows`。其版本取自 `package.json` 的 `windowsVersion`，不修改 macOS 的 `version` 或已有发布附件。Windows 发布使用 `v<版本>-windows` 标签，只上传 Windows ZIP 和该 ZIP 的校验文件。
+额度约每分钟刷新，Token 和窗口连接约每五秒刷新。Token 是累计用量，不等同于当前上下文大小。未知、不可访问或过期数据必须保留明确的不可用状态。
 
-`build_release.py` 在 macOS 生成两个平台的 ZIP，在 Windows 生成 Windows ZIP。文件输出到 `dist/`，附带 SHA256 校验清单。发布前将本次源码加入 Git 暂存区，再执行隐私检查；检查覆盖所有受跟踪源码和安装包。
+后台仅连接已开启的回环端口，不通过退出重开启用调试连接。Windows 补交丢失请求必须有近期系统事件证据、旧容器销毁和稳定退出检查，单次消费、过期放弃、手动重试取消，禁止循环拉起或强制退出。
 
-本 fork 的 `main`、`fix/**` 分支推送和手动 Actions 执行都会运行双平台验证，并上传通过测试的安装包（保留 30 天），不会创建 Release。macOS 作业沿用上述脚本构建包含 arm64 / x86_64 原生助手的 macOS ZIP 以及 Windows ZIP；Windows 作业独立构建并验证 Windows ZIP。自动更新来源固定为 `sz6660/codex-usage-badge`。
-
-## 数据与兼容性
-
-额度来自客户端 CLI 的账号接口。Plus 显示短周期与每周额度，Pro 显示周额度；大于 50% 为绿、10%～50% 为黄、小于 10% 为红。
-
-Token 读取本机会话数据库中的累计值，包含缓存输入，不代表当前上下文大小。色块的四档分界为 100 万、1000 万和 1 亿；无记录时为灰色。额度约每分钟刷新，Token 约每 5 秒刷新。
-
-项目容量按本机项目路径计算，macOS 使用目录占用统计；默认两路并发，缓存 5 分钟，单项目计算最多 3 分钟。不可访问的目录显示 `—`，不以不完整结果冒充完整容量。
-
-插件依赖客户端内部界面和调试接口。自动化测试使用临时目录、模拟页面与独立测试应用，不读取真实账号。macOS 自动加载已完成本机真实客户端重启验证；Windows 安装流程由 CI 验证，已登录客户端的长期兼容性仍需更多设备反馈。
-
-启动输入保护：Windows 由 Raw Input 分别归属键盘前台进程和鼠标目标窗口进程；macOS 由常驻 `serve` 原生助手保留按进程身份记录的活动计数，并在同一主线程执行采样与退出检查。macOS 使用 50ms 计数采样，极短且发生在采样间隔内的输入/焦点变化可能无法完整归属；原生正常退出仍允许客户端拒绝，禁止强制终止。其他应用输入只用于阻止抢占焦点，不取消后台加载或正常退出后的恢复。
+修改时不要读取真实账号与聊天内容，也不要用原生客户端作为可随意启停的测试应用。用户本机的安装、卸载和重启由用户执行。
