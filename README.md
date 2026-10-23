@@ -9,9 +9,9 @@
 | 平台 | 版本 | 下载安装包 | 安装说明 |
 | --- | --- | --- | --- |
 | Windows | **0.10.6** | [下载 Windows ZIP](https://github.com/sz6660/codex-usage-badge/releases/download/v0.10.6-windows/CodexUsageBadge-Windows-0.10.6.zip) | [Windows 手册](docs/windows.md) |
-| macOS · Apple Silicon / Intel | **0.10.6** | [下载 macOS ZIP](https://github.com/sz6660/codex-usage-badge/releases/download/v0.10.6-macos/CodexUsageBadge-macOS-0.10.6.zip) | [macOS 手册](docs/macos.md) |
+| macOS · Apple Silicon / Intel | **0.10.6** | [下载 macOS ZIP](https://github.com/sz6660/codex-usage-badge/releases/download/v0.10.6-windows/CodexUsageBadge-macOS-0.10.6.zip) | [macOS 手册](docs/macos.md) |
 
-下载对应 ZIP 并完整解压后运行。每个平台的发布页同时提供 SHA-256 校验文件，验证范围见 [版本与更新说明](CHANGELOG.md)。Windows 已通过本机验收；macOS 仍需真实账号环境的实机验收。
+下载对应 ZIP 并完整解压后运行。两个平台集中在同一个 Latest 发布页，提供统一的 SHA-256 校验文件，验证范围见 [版本与更新说明](CHANGELOG.md)。Windows 已通过本机验收；macOS 仍需真实账号环境的实机验收。
 
 ## 三个操作入口
 
