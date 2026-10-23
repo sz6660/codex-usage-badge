@@ -6,7 +6,7 @@ const { execFileSync, spawn } = require('node:child_process');
 const { resolveCodexBin, isMainWindow } = require('./agent.cjs');
 const {cleanupLegacyLauncher}=require('./macos/shortcuts.cjs');
 const {acquireLock,readJson,compareVersions}=require('./updater/core.cjs');
-const VERSION='0.10.5';
+const VERSION='0.10.6';
 const home = os.homedir();
 const app = process.env.CODEX_BADGE_APP || ['/Applications/Codex.app','/Applications/ChatGPT.app',path.join(home,'Applications/Codex.app'),path.join(home,'Applications/ChatGPT.app')].find(candidate => { try { resolveCodexBin(undefined,candidate); return true; } catch { return false; } }) || '/Applications/Codex.app';
 const node = process.execPath;
@@ -274,7 +274,7 @@ async function activate({allowRestart=false,foreground=false}={}) {
     } catch {}
     await pause(2000);
   }
-  throw new Error(uiWasShown?'侧栏已显示，但暂时无法读取额度，请运行诊断.command 查看读取错误':'客户端已启动，但暂未确认侧栏进度条显示，请运行诊断.command');
+  throw new Error(uiWasShown?'侧栏已显示，但暂时无法读取额度，请运行status.command 查看读取错误':'客户端已启动，但暂未确认侧栏进度条显示，请运行status.command');
 }
 async function scheduleActivation(options={}) {
   await stop('com.codexusagebadge.install-once');

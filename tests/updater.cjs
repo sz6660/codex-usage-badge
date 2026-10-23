@@ -56,7 +56,7 @@ function mockFetch(releases,bytes=archive){return async(url,options)=>{
   assert.equal(fs.readFileSync(path.join(extraction,'agent.cjs'),'utf8'),'fixture');
   if(process.platform!=='win32')assert.ok(fs.statSync(path.join(extraction,'macos/startup/bridge')).mode&0o100);
   const built=path.join(__dirname,`../dist/CodexUsageBadge-macOS-${require('../package.json').version}.zip`);
-  if(fs.existsSync(built))assert.ok(readArchive(fs.readFileSync(built),require('../package.json').version).has('安装.command'));
+  if(fs.existsSync(built))assert.ok(readArchive(fs.readFileSync(built),require('../package.json').version).has('install.command'));
   let installs=0,now=1;
   const f=fixture('success');
   const install=async(stage)=>{installs++;assert.equal(fs.readFileSync(path.join(stage,'agent.cjs'),'utf8'),'fixture');writeJson(path.join(f.installDir,'installed-version.json'),{version,repository:repo,platform:'macOS'});};

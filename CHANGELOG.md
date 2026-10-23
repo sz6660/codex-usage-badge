@@ -1,5 +1,14 @@
 # 更新说明
 
+## Windows / macOS 0.10.6
+
+- 两个平台统一版本号，用户操作入口统一为英文小写。
+- Windows：`install.cmd`、`status.cmd`、`uninstall.cmd`。
+- macOS：`install.command`、`status.command`、`uninstall.command`。
+- 实际安装包、安装器、校验清单、说明和下载链接同步更新。
+- 沿用已验收的 Windows 0.10.5 启动恢复逻辑；macOS 真实账号环境仍待实机验收。
+
+
 ## Windows 0.10.5 · 已封版
 
 2026-10-23：用户确认 Windows 本机可用，固定当前运行代码。
@@ -24,8 +33,8 @@
 
 | 平台 | 当前版本 | 验证状态 |
 | --- | --- | --- |
-| Windows | 0.10.5 | 2026-10-23 用户确认本机可用，封版 |
-| macOS | 0.10.5 | macOS Actions 构建及自动化测试通过，真实账号原入口加载待实机验收 |
+| Windows | 0.10.6 | 基于已验收的 0.10.5，统一小写入口名称 |
+| macOS | 0.10.6 | macOS Actions 构建及自动化测试通过，真实账号原入口加载待实机验收 |
 
 ### Windows 封版范围
 

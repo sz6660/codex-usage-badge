@@ -8,8 +8,8 @@
 
 | 平台 | 版本 | 下载安装包 | 安装说明 |
 | --- | --- | --- | --- |
-| Windows | **0.10.5** | [下载 Windows ZIP](https://github.com/sz6660/codex-usage-badge/releases/download/v0.10.5-windows/CodexUsageBadge-Windows-0.10.5.zip) | [Windows 手册](docs/windows.md) |
-| macOS · Apple Silicon / Intel | **0.10.5** | [下载 macOS ZIP](https://github.com/sz6660/codex-usage-badge/releases/download/v0.10.5-macos/CodexUsageBadge-macOS-0.10.5.zip) | [macOS 手册](docs/macos.md) |
+| Windows | **0.10.6** | [下载 Windows ZIP](https://github.com/sz6660/codex-usage-badge/releases/download/v0.10.6-windows/CodexUsageBadge-Windows-0.10.6.zip) | [Windows 手册](docs/windows.md) |
+| macOS · Apple Silicon / Intel | **0.10.6** | [下载 macOS ZIP](https://github.com/sz6660/codex-usage-badge/releases/download/v0.10.6-macos/CodexUsageBadge-macOS-0.10.6.zip) | [macOS 手册](docs/macos.md) |
 
 下载对应 ZIP 并完整解压后运行。每个平台的发布页同时提供 SHA-256 校验文件，验证范围见 [版本与更新说明](CHANGELOG.md)。Windows 已通过本机验收；macOS 仍需真实账号环境的实机验收。
 
@@ -17,9 +17,9 @@
 
 | 操作 | Windows | macOS |
 | --- | --- | --- |
-| 安装或升级 | `Install.cmd` | `安装.command` |
-| 查看安装与连接状态 | `Status.cmd` | `查看状态.command` |
-| 卸载并恢复环境 | `Uninstall.cmd` | `卸载.command` |
+| 安装或升级 | `install.cmd` | `install.command` |
+| 查看安装与连接状态 | `status.cmd` | `status.command` |
+| 卸载并恢复环境 | `uninstall.cmd` | `uninstall.command` |
 
 安装时自动备份并配置环境变量、安装插件后台；重复安装保留原环境备份，卸载自动恢复。由用户完全退出 Codex，再从原商店入口、应用图标或 Dock 启动。无需额外的环境设置或启动命令。
 

@@ -4,7 +4,7 @@ param(
     [switch]$DisableAutoUpdate, [switch]$AutomaticUpdate, [switch]$ForceUpdate
 )
 $ErrorActionPreference = 'Stop'
-$script:Version = '0.10.5'
+$script:Version = '0.10.6'
 $script:Owner = 'local.codexusagebadge.windows'
 . (Join-Path $PSScriptRoot 'environment.ps1')
 
@@ -157,7 +157,7 @@ function Select-Runtime([string[]]$Candidates, [string]$Kind) {
             return (Get-Item -LiteralPath $file).FullName
         } catch {}
     }
-    if ($Kind -eq 'Node') { throw '未找到可运行的 Node.js 24+（需 node:sqlite）。请先运行一次客户端，或安装 Node.js 24 LTS，再运行 Install.cmd。' }
+    if ($Kind -eq 'Node') { throw '未找到可运行的 Node.js 24+（需 node:sqlite）。请先运行一次客户端，或安装 Node.js 24 LTS，再运行 install.cmd。' }
     throw '未找到可运行的 Codex CLI。请先打开客户端一次，或使用 -CodexBin 指定客户端内置的 codex.exe。'
 }
 function Resolve-Configuration($Saved, $Overrides) {
@@ -298,7 +298,7 @@ function Stop-Worker {
     Write-Utf8 $script:StopPath 'stop'
     $deadline = [DateTime]::UtcNow.AddSeconds(30)
     while ((Test-Worker) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 200 }
-    if (Test-Worker) { throw '后台任务尚未退出，安装目录保持不变。请注销 Windows 后重试，或先运行 Status.cmd。' }
+    if (Test-Worker) { throw '后台任务尚未退出，安装目录保持不变。请注销 Windows 后重试，或先运行 status.cmd。' }
 }
 function Start-Worker {
     if (Test-Worker) { return }
@@ -312,7 +312,7 @@ function Start-Worker {
         if ((Test-Worker) -and (Get-Setting $state 'State') -eq 'running') { return }
         if ((Get-Setting $state 'State') -eq 'error') { throw $state.Message }
     }
-    throw '后台启动超时，请运行 Status.cmd 查看状态。'
+    throw '后台启动超时，请运行 status.cmd 查看状态。'
 }
 function Run-Worker {
     Assert-OwnedDirectory $script:InstallRoot
@@ -427,7 +427,7 @@ function Install-Badge($Overrides) {
     try {
         [void][IO.Directory]::CreateDirectory($stage)
         Write-Utf8 (Join-Path $stage '.codex-usage-badge-owner') $script:Owner
-        foreach ($name in @('manage-windows.ps1','agent.cjs','bridge.cjs','update.cjs','update-windows.ps1','environment.ps1','Install.cmd','Status.cmd','Uninstall.cmd','README-Windows.md')) {
+        foreach ($name in @('manage-windows.ps1','agent.cjs','bridge.cjs','update.cjs','update-windows.ps1','environment.ps1','install.cmd','status.cmd','uninstall.cmd','README-Windows.md')) {
             Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination (Join-Path $stage $name)
         }
         [void][IO.Directory]::CreateDirectory((Join-Path $stage 'startup'))
@@ -503,7 +503,7 @@ function Show-Status {
     Write-Host ("已安装：" + (Test-Path -LiteralPath $script:ConfigPath))
     Show-BadgeEnvironment
     Write-Host "后台运行：$(Test-Worker)"
-    Write-Host '自动检查更新：关闭；更新时重新运行新版 Install.cmd。'
+    Write-Host '自动检查更新：关闭；更新时重新运行新版 install.cmd。'
     $update = Read-Json (Join-Path $script:InstallRoot 'update-state.json')
     if ($update) { Write-Host ('更新状态：' + ($update | ConvertTo-Json -Compress)) }
     $state = Read-Json $script:StatePath
